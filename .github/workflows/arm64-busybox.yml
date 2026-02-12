@@ -1,6 +1,9 @@
 name: arm64-busybox
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
