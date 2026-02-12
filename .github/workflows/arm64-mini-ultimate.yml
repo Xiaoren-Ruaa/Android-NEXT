@@ -1,4 +1,4 @@
-name: ARM64 Mini Linux STABLE
+name: ARM64 Mini Linux ULTIMATE FINAL
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
             CONFIG_PREFIX=../rootfs install
 
       ############################################################
-      # Dropbear (NO PASSWORD AUTH, STATIC SAFE)
+      # Dropbear (STATIC, SINGLE BINARY)
       ############################################################
       - name: Download Dropbear
         run: |
@@ -68,18 +68,18 @@ jobs:
           ./configure \
             --host=aarch64-linux-gnu \
             --disable-zlib \
-            --disable-loginfunc \
             --disable-shadow \
             --disable-pam \
+            --disable-loginfunc \
             --enable-static \
             CFLAGS="-DDROPBEAR_SVR_PASSWORD_AUTH=0" \
             LDFLAGS="-static"
 
-          make PROGRAMS="dropbear dbclient dropbearkey scp" \
+          make PROGRAMS="dropbear" \
             CC=aarch64-linux-gnu-gcc
 
           mkdir -p ../rootfs/usr/sbin
-          cp dropbearmulti ../rootfs/usr/sbin/dropbear
+          cp dropbear ../rootfs/usr/sbin/
 
       ############################################################
       # RootFS
@@ -97,7 +97,7 @@ jobs:
 
           mkdir -p etc/init.d
 
-          printf "#!/bin/sh\nmount -t proc none /proc\nmount -t sysfs none /sys\nmount -t devtmpfs none /dev\necho ARM64 Mini Linux STABLE Ready\n" > etc/init.d/rcS
+          printf "#!/bin/sh\nmount -t proc none /proc\nmount -t sysfs none /sys\nmount -t devtmpfs none /dev\necho ARM64 Mini Linux ULTIMATE FINAL Ready\n" > etc/init.d/rcS
 
           chmod +x etc/init.d/rcS
 
@@ -121,10 +121,10 @@ jobs:
       ############################################################
       - name: Package
         run: |
-          tar -czf arm64-mini-stable.tar.gz arm64-rootfs.img
+          tar -czf arm64-mini-ultimate-final.tar.gz arm64-rootfs.img
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: arm64-mini-stable
-          path: arm64-mini-stable.tar.gz
+          name: arm64-mini-ultimate-final
+          path: arm64-mini-ultimate-final.tar.gz
