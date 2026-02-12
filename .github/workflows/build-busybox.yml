@@ -1,4 +1,4 @@
-name: Build ARM64 BusyBox RootFS (Full Static)
+name: Stable ARM64 BusyBox RootFS (Static)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 60
 
     steps:
     - name: Install dependencies
@@ -16,26 +16,21 @@ jobs:
           build-essential \
           wget \
           bzip2 \
-          gcc-aarch64-linux-gnu \
-          bc \
-          bison \
-          flex
+          gcc-aarch64-linux-gnu
 
     - name: Download BusyBox
       run: |
         wget https://busybox.net/downloads/busybox-1.36.1.tar.bz2
         tar -xf busybox-1.36.1.tar.bz2
 
-    - name: Configure BusyBox (Stable All Features)
+    - name: Configure BusyBox (Stable Static)
       run: |
         cd busybox-1.36.1
-        # 使用 defconfig 作为基础配置，开启大部分功能
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig
 
-        # 静态编译
+        # 强制静态编译
         sed -i 's/# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
 
-        # 启用所有模块，但避免最极端配置
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
     - name: Build BusyBox
@@ -43,40 +38,29 @@ jobs:
         cd busybox-1.36.1
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
-    - name: Show Binary Info
+    - name: Install BusyBox to rootfs
       run: |
-        file busybox-1.36.1/busybox
-        ls -lh busybox-1.36.1/busybox
+        mkdir rootfs
+        cd busybox-1.36.1
+        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CONFIG_PREFIX=../rootfs install
 
-    - name: Create RootFS
+    - name: Add basic system files
       run: |
-        mkdir -p rootfs/{bin,sbin,etc,proc,sys,usr/bin,usr/sbin,dev,tmp,lib}
-
-        # 安装 busybox
-        cp busybox-1.36.1/busybox rootfs/bin/
-
-        # 生成所有 applet 软链接
-        cd rootfs
-        chmod +x bin/busybox
-        ./bin/busybox --install -s .
-
-        # 创建基础文件
-        echo "::sysinit:/bin/sh" > etc/inittab
-        echo "root:x:0:0:root:/root:/bin/sh" > etc/passwd
-        echo "root:x:0:" > etc/group
-
-        mkdir -p rootfs/root
+        mkdir -p rootfs/{proc,sys,dev,tmp,root}
+        echo "root:x:0:0:root:/root:/bin/sh" > rootfs/etc/passwd
+        echo "root:x:0:" > rootfs/etc/group
 
     - name: Package RootFS
       run: |
-        tar -czvf busybox-rootfs-arm64.tar.gz rootfs
+        tar -czf busybox-rootfs-arm64.tar.gz rootfs
 
-    - name: Show RootFS Size
+    - name: Verify binary
       run: |
+        file rootfs/bin/busybox
         ls -lh busybox-rootfs-arm64.tar.gz
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: busybox-rootfs-arm64
+        name: busybox-rootfs-arm64-stable
         path: busybox-rootfs-arm64.tar.gz
