@@ -1,0 +1,59 @@
+name: Build BusyBox Initramfs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      INITRAMFS_DIR: ${{ github.workspace }}/initramfs
+      OUTPUT_DIR: ${{ github.workspace }}/output
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Install build dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential git bc cpio gzip wget
+
+    - name: Prepare initramfs directories
+      run: |
+        mkdir -p $INITRAMFS_DIR/bin
+
+    - name: Download and build BusyBox (ARM64 static)
+      run: |
+        cd $INITRAMFS_DIR/bin
+        wget https://busybox.net/downloads/busybox-1.36.1.tar.bz2
+        tar xjf busybox-1.36.1.tar.bz2
+        cd busybox-1.36.1
+        make defconfig
+        # 修改配置为静态编译
+        sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
+        make -j$(nproc)
+        cp busybox ../busybox
+        chmod +x ../busybox
+        ln -sf busybox sh
+
+    - name: Add init script
+      run: |
+        # 假设你的 init 脚本在仓库根目录 init
+        cp init $INITRAMFS_DIR/
+        chmod +x $INITRAMFS_DIR/init
+
+    - name: Build initramfs
+      run: |
+        mkdir -p $OUTPUT_DIR
+        cd $INITRAMFS_DIR
+        find . | cpio -o -H newc | gzip > $OUTPUT_DIR/initramfs.cpio.gz
+
+    - name: Verify initramfs contents
+      run: |
+        gzip -d -c $OUTPUT_DIR/initramfs.cpio.gz | cpio -t | grep -E "init|sh|busybox"
+
+    - name: List output
+      run: ls -lh $OUTPUT_DIR
