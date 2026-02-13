@@ -41,8 +41,8 @@ jobs:
         make defconfig
         # 设置静态编译
         sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
-        # 非交互式生成 include/autoconf.h
-        make olddefconfig
+        # 非交互式生成 include/autoconf.h，避免 GitHub Actions 弹出交互报错
+        yes "" | make oldconfig
         # 编译 BusyBox
         make -j$(nproc)
         # 拷贝生成的 BusyBox
