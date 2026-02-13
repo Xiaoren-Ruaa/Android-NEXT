@@ -1,28 +1,51 @@
 #!/bin/sh
+# ====================================================
+# BusyBox init for mounting Alpine rootfs
+# ====================================================
 
-echo "Booting BusyBox initramfs..."
+# --- 基本环境 ---
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 
+# --- 挂载必要的 pseudo 文件系统 ---
 mount -t proc none /proc
 mount -t sysfs none /sys
 mount -t devtmpfs none /dev
+mount -t tmpfs tmpfs /tmp
 
-echo "Mounting rootfs image..."
+echo "==== BusyBox initramfs start ===="
 
-# 创建挂载点
-mkdir /newroot
+# --- 创建挂载点 ---
+NEWROOT="/newroot"
+mkdir -p $NEWROOT
 
-# 挂载镜像文件（假设内核已经把它作为 /dev/vda）
-mount -t ext4 /dev/vda /newroot
+# --- 找到 rootfs 镜像 ---
+ROOTFS_IMG="/alpine-rootfs.img"
 
-if [ $? -ne 0 ]; then
-    echo "Failed to mount rootfs!"
+if [ ! -f "$ROOTFS_IMG" ]; then
+    echo "ERROR: $ROOTFS_IMG not found!"
     exec sh
 fi
 
-echo "Switching to Alpine root..."
+echo "Mounting Alpine rootfs image at $ROOTFS_IMG ..."
 
-mount --move /proc /newroot/proc
-mount --move /sys /newroot/sys
-mount --move /dev /newroot/dev
+# --- 挂载 Alpine rootfs ---
+mount -o loop -t ext4 "$ROOTFS_IMG" $NEWROOT
+if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to mount $ROOTFS_IMG"
+    exec sh
+fi
 
-exec switch_root /newroot /sbin/init
+echo "Mount success. Switching root ..."
+
+# --- 把 pseudo 文件系统迁移到新根 ---
+mount --move /proc $NEWROOT/proc
+mount --move /sys $NEWROOT/sys
+mount --move /dev $NEWROOT/dev
+mount --move /tmp $NEWROOT/tmp
+
+# --- 切换 root 并启动 Alpine init ---
+exec switch_root $NEWROOT /sbin/init
+
+# --- 如果 switch_root 失败，进入 BusyBox shell ---
+echo "switch_root failed! Dropping to BusyBox shell..."
+exec sh
