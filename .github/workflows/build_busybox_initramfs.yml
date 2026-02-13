@@ -19,8 +19,9 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt update
-        sudo apt install -y build-essential git bc cpio gzip wget flex bison binutils \
-                            gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+        sudo apt install -y build-essential git bc cpio gzip wget flex bison \
+                            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+                            libc6-dev-arm64-cross
 
     - name: Prepare initramfs directories
       run: |
@@ -44,27 +45,20 @@ jobs:
         yes "" | make oldconfig
         # ARM64 交叉编译
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
-        # 拷贝 BusyBox
+        # 拷贝 BusyBox 到 initramfs
         cp busybox ../busybox
         chmod +x ../busybox
         ln -sf busybox ../sh
+        # 测试 BusyBox 文件类型
+        file ../busybox
 
     - name: Create initramfs structure
       run: |
         mkdir -p $INITRAMFS_DIR/{proc,sys,dev,tmp,newroot}
-        # 拷贝 init 脚本
         cp init $INITRAMFS_DIR/
         chmod +x $INITRAMFS_DIR/init
         chmod +x $INITRAMFS_DIR/bin/busybox
         chmod +x $INITRAMFS_DIR/bin/sh
-
-    - name: Test BusyBox presence in initramfs (dry run)
-      run: |
-        echo "Contents of initramfs directory before packaging:"
-        find $INITRAMFS_DIR
-        echo "Testing BusyBox binary:"
-        file $INITRAMFS_DIR/bin/busybox
-        ls -l $INITRAMFS_DIR/bin
 
     - name: Build initramfs.cpio.gz
       run: |
