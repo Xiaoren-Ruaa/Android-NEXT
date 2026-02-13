@@ -40,11 +40,11 @@ jobs:
         make defconfig
         # 设置静态编译
         sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
-        # 自动使用默认选项，避免交互报错
+        # 非交互式生成 include/autoconf.h
         yes "" | make oldconfig
         # ARM64 交叉编译
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
-        # 拷贝生成的 BusyBox
+        # 拷贝 BusyBox
         cp busybox ../busybox
         chmod +x ../busybox
         ln -sf busybox ../sh
@@ -55,7 +55,6 @@ jobs:
         # 拷贝 init 脚本
         cp init $INITRAMFS_DIR/
         chmod +x $INITRAMFS_DIR/init
-        # BusyBox 权限
         chmod +x $INITRAMFS_DIR/bin/busybox
         chmod +x $INITRAMFS_DIR/bin/sh
 
