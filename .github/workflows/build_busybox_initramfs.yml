@@ -19,7 +19,7 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt update
-        sudo apt install -y build-essential git bc cpio gzip wget
+        sudo apt install -y build-essential git bc cpio gzip wget flex bison
 
     - name: Prepare initramfs directories
       run: |
@@ -35,17 +35,23 @@ jobs:
     - name: Build BusyBox (ARM64 static)
       run: |
         cd $INITRAMFS_DIR/bin/busybox-1.36.1
+        # 清理旧配置
         make distclean || true
+        # 生成默认配置
         make defconfig
+        # 设置静态编译
         sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
+        # 生成 include/autoconf.h
+        make oldconfig
+        # 编译 BusyBox
         make -j$(nproc)
+        # 拷贝到 initramfs 根目录
         cp busybox ../busybox
         chmod +x ../busybox
         ln -sf busybox ../sh
 
     - name: Create initramfs structure
       run: |
-        # 确保 initramfs 根目录基本结构
         mkdir -p $INITRAMFS_DIR/{proc,sys,dev,tmp,newroot}
         # 拷贝 init 脚本
         cp init $INITRAMFS_DIR/
