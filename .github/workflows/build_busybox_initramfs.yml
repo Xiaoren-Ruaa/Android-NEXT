@@ -1,4 +1,4 @@
-name: Build BusyBox Initramfs
+name: Build BusyBox ARM64 Initramfs
 
 on:
   push:
@@ -19,7 +19,8 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt update
-        sudo apt install -y build-essential git bc cpio gzip wget flex bison
+        sudo apt install -y build-essential git bc cpio gzip wget flex bison binutils \
+                            gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
     - name: Prepare initramfs directories
       run: |
@@ -35,16 +36,14 @@ jobs:
     - name: Build BusyBox (ARM64 static, non-interactive)
       run: |
         cd $INITRAMFS_DIR/bin/busybox-1.36.1
-        # 清理旧配置
         make distclean || true
-        # 生成默认配置
         make defconfig
         # 设置静态编译
         sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
-        # 非交互式生成 include/autoconf.h，避免 GitHub Actions 弹出交互报错
+        # 自动使用默认选项，避免交互报错
         yes "" | make oldconfig
-        # 编译 BusyBox
-        make -j$(nproc)
+        # ARM64 交叉编译
+        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
         # 拷贝生成的 BusyBox
         cp busybox ../busybox
         chmod +x ../busybox
