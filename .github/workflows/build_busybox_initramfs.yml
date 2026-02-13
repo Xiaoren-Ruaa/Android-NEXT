@@ -1,4 +1,4 @@
-name: Build BusyBox ARM64 Initramfs
+name: Build ARM64 Initramfs with BusyBox
 
 on:
   push:
@@ -16,49 +16,28 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: Install build dependencies
+    - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y build-essential git bc cpio gzip wget flex bison \
-                            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-                            libc6-dev-arm64-cross
+        sudo apt install -y cpio gzip wget
 
     - name: Prepare initramfs directories
       run: |
-        mkdir -p $INITRAMFS_DIR/bin
+        mkdir -p $INITRAMFS_DIR/{bin,proc,sys,dev,tmp,newroot}
         mkdir -p $OUTPUT_DIR
 
-    - name: Download and extract BusyBox
+    - name: Download official ARM64 BusyBox binary
       run: |
         cd $INITRAMFS_DIR/bin
-        wget https://busybox.net/downloads/busybox-1.36.1.tar.bz2
-        tar xjf busybox-1.36.1.tar.bz2
+        wget -O busybox https://busybox.net/downloads/binaries/1.36.1-defconfig-multiarch/busybox-arm64
+        chmod +x busybox
+        ln -sf busybox sh
 
-    - name: Build BusyBox (ARM64 static, non-interactive)
+    - name: Add init script
       run: |
-        cd $INITRAMFS_DIR/bin/busybox-1.36.1
-        make distclean || true
-        make defconfig
-        # 设置静态编译
-        sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
-        # 非交互生成 include/autoconf.h
-        yes "" | make oldconfig
-        # ARM64 交叉编译，确保调用 aarch64-linux-gnu-ar
-        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
-        # 拷贝 BusyBox 到 initramfs
-        cp busybox ../busybox
-        chmod +x ../busybox
-        ln -sf busybox ../sh
-        # 测试 BusyBox 文件类型
-        file ../busybox
-
-    - name: Create initramfs structure
-      run: |
-        mkdir -p $INITRAMFS_DIR/{proc,sys,dev,tmp,newroot}
-        cp init $INITRAMFS_DIR/
+        # 假设你的 init 脚本已经放在仓库根目录
+        cp $GITHUB_WORKSPACE/init $INITRAMFS_DIR/
         chmod +x $INITRAMFS_DIR/init
-        chmod +x $INITRAMFS_DIR/bin/busybox
-        chmod +x $INITRAMFS_DIR/bin/sh
 
     - name: Build initramfs.cpio.gz
       run: |
