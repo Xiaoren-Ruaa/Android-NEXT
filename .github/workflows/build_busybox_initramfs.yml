@@ -24,30 +24,46 @@ jobs:
     - name: Prepare initramfs directories
       run: |
         mkdir -p $INITRAMFS_DIR/bin
+        mkdir -p $OUTPUT_DIR
 
-    - name: Download and build BusyBox (ARM64 static)
+    - name: Download and extract BusyBox
       run: |
         cd $INITRAMFS_DIR/bin
         wget https://busybox.net/downloads/busybox-1.36.1.tar.bz2
         tar xjf busybox-1.36.1.tar.bz2
-        cd busybox-1.36.1
+
+    - name: Build BusyBox (ARM64 static)
+      run: |
+        cd $INITRAMFS_DIR/bin/busybox-1.36.1
+        make distclean || true
         make defconfig
-        # 修改配置为静态编译
         sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
         make -j$(nproc)
         cp busybox ../busybox
         chmod +x ../busybox
-        ln -sf busybox sh
+        ln -sf busybox ../sh
 
-    - name: Add init script
+    - name: Create initramfs structure
       run: |
-        # 假设你的 init 脚本在仓库根目录 init
+        # 确保 initramfs 根目录基本结构
+        mkdir -p $INITRAMFS_DIR/{proc,sys,dev,tmp,newroot}
+        # 拷贝 init 脚本
         cp init $INITRAMFS_DIR/
         chmod +x $INITRAMFS_DIR/init
+        # BusyBox 权限
+        chmod +x $INITRAMFS_DIR/bin/busybox
+        chmod +x $INITRAMFS_DIR/bin/sh
 
-    - name: Build initramfs
+    - name: Test BusyBox presence in initramfs (dry run)
       run: |
-        mkdir -p $OUTPUT_DIR
+        echo "Contents of initramfs directory before packaging:"
+        find $INITRAMFS_DIR
+        echo "Testing BusyBox binary:"
+        file $INITRAMFS_DIR/bin/busybox
+        ls -l $INITRAMFS_DIR/bin
+
+    - name: Build initramfs.cpio.gz
+      run: |
         cd $INITRAMFS_DIR
         find . | cpio -o -H newc | gzip > $OUTPUT_DIR/initramfs.cpio.gz
 
@@ -55,5 +71,5 @@ jobs:
       run: |
         gzip -d -c $OUTPUT_DIR/initramfs.cpio.gz | cpio -t | grep -E "init|sh|busybox"
 
-    - name: List output
+    - name: List output files
       run: ls -lh $OUTPUT_DIR
