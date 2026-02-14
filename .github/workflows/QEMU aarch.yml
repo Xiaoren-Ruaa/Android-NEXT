@@ -1,4 +1,4 @@
-name: Build QEMU ARM64 Native
+name: Build QEMU 6.2 ARM64
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
 
     env:
       PREFIX: ${{ github.workspace }}/qemu-arm64
@@ -19,34 +19,36 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y \
-          git python3 python3-pip \
-          ninja-build pkg-config \
+          git build-essential \
           libglib2.0-dev libfdt-dev libpixman-1-dev \
-          zlib1g-dev libaio-dev
+          zlib1g-dev libaio-dev \
+          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
-        pip3 install --upgrade meson
-
-    - name: Clone QEMU
-      run: git clone --depth 1 https://github.com/qemu/qemu.git qemu-src
+    - name: Download QEMU 6.2.0
+      run: |
+        wget https://download.qemu.org/qemu-6.2.0.tar.xz
+        tar xf qemu-6.2.0.tar.xz
+        mv qemu-6.2.0 qemu-src
 
     - name: Configure
       run: |
         mkdir build
         cd build
 
-        meson setup ../qemu-src \
+        ../qemu-src/configure \
+          --target-list=aarch64-softmmu \
+          --cross-prefix=aarch64-linux-gnu- \
           --prefix=${PREFIX} \
-          -Dtargets=aarch64-softmmu \
-          -Dvirtfs=enabled \
-          -Dsystem=true \
-          -Dlinux-user=false \
-          --buildtype=release
+          --enable-virtfs \
+          --disable-werror \
+          --disable-sdl \
+          --disable-cocoa
 
     - name: Compile
       run: |
         cd build
-        ninja -j$(nproc)
-        ninja install
+        make -j$(nproc)
+        make install
 
     - name: Verify
       run: |
