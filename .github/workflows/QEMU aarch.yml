@@ -1,7 +1,8 @@
-name: Build QEMU ARM64 (for Android Magisk)
+name: Build QEMU ARM64 (Meson)
 
 on:
   push:
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -10,50 +11,46 @@ jobs:
 
     env:
       PREFIX: ${{ github.workspace }}/qemu-arm64
-      TARGET: aarch64-linux-android
 
     steps:
-    # 1. Checkout repository
-    - name: Checkout repo
+    - name: Checkout repository
       uses: actions/checkout@v3
 
-    # 2. Install dependencies and cross toolchain
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y git wget unzip build-essential python3 pkg-config \
-          libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev libaio-dev \
-          ninja-build libtool gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        sudo apt install -y git python3 python3-pip \
+          ninja-build meson pkg-config \
+          libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev \
+          libaio-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
-    # 3. Clone QEMU source
-    - name: Clone QEMU
-      run: |
-        git clone --depth 1 https://github.com/qemu/qemu.git qemu-src
+    - name: Clone QEMU source
+      run: git clone --depth 1 https://github.com/qemu/qemu.git qemu-src
 
-    # 4. Configure and build for ARM64 target
-    - name: Configure and build
+    - name: Configure Meson build
       run: |
         mkdir -p qemu-src/build
         cd qemu-src/build
-        ../configure \
-          --target-list=aarch64-softmmu \
-          --cross-prefix=aarch64-linux-gnu- \
+        meson setup --cross-file ../aarch64-cross.txt \
           --prefix=${PREFIX} \
-          --enable-virtfs \
-          --disable-sdl \
-          --disable-cocoa \
-          --disable-linux-user
-        make -j$(nproc)
-        make install
+          -Dtargets=aarch64-softmmu \
+          -Dvirtfs=enabled \
+          -Dsystem=true \
+          -Dlinux-user=false \
+          --buildtype=release .
 
-    # 5. Check binary
-    - name: Check QEMU binary
+    - name: Compile with Ninja
+      run: |
+        cd qemu-src/build
+        ninja -j$(nproc)
+        ninja install
+
+    - name: Check binary
       run: |
         file ${{ env.PREFIX }}/bin/qemu-system-aarch64
         ls -lh ${{ env.PREFIX }}/bin
 
-    # 6. Upload artifact
-    - name: Upload qemu-system-aarch64 ARM64 binary
+    - name: Upload ARM64 binary
       uses: actions/upload-artifact@v4
       with:
         name: qemu-system-arm64
