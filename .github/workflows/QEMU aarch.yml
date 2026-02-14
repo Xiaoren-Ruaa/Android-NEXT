@@ -10,21 +10,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout source
+    # 1. 拉取仓库源代码
+    - name: Checkout repository
       uses: actions/checkout@v3
 
+    # 2. 安装编译依赖
     - name: Install build dependencies
       run: |
         sudo apt update
         sudo apt install -y git libglib2.0-dev libfdt-dev libpixman-1-dev \
           zlib1g-dev libaio-dev ninja-build libtool python3 \
-          gcc g++ make pkg-config
+          gcc g++ make pkg-config pkgconf
 
-    - name: Clone QEMU repo
+    # 3. 拉取 QEMU 官方源码
+    - name: Clone QEMU source
       run: |
         git clone --depth 1 https://github.com/qemu/qemu.git qemu-src
 
-    - name: Configure / Build QEMU
+    # 4. 配置和编译 QEMU
+    - name: Configure and build QEMU
       run: |
         cd qemu-src
         ./configure \
@@ -35,8 +39,9 @@ jobs:
           --disable-linux-user
         make -j$(nproc)
 
+    # 5. 上传构建好的 QEMU 二进制
     - name: Upload qemu-system-aarch64 binary
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: qemu-system-arm64
         path: qemu-src/aarch64-softmmu/qemu-system-aarch64
