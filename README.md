@@ -19,3 +19,5 @@ GNU General Public License v2.0.
 2-14  busybox--->initramfs ✅
       
  alpine rootfs ✅
+
+ 重整，放弃initramfs，直接在rootfs集成包管理器
