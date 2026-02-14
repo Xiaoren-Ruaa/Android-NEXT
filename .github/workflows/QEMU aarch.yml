@@ -21,13 +21,11 @@ jobs:
           gcc g++ make pkg-config pkgconf
 
     - name: Clone QEMU source
-      run: |
-        git clone --depth 1 https://github.com/qemu/qemu.git qemu-src
+      run: git clone --depth 1 https://github.com/qemu/qemu.git qemu-src
 
     - name: Configure and build QEMU
       run: |
         cd qemu-src
-        # 创建单独 build 目录
         mkdir -p build
         cd build
         ../configure \
@@ -40,7 +38,7 @@ jobs:
 
     - name: Check build output
       run: |
-        cd qemu-src/build/aarch64-softmmu
+        cd qemu-src/build
         echo "Listing compiled binaries:"
         ls -lh
 
@@ -48,4 +46,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: qemu-system-arm64
-        path: qemu-src/build/aarch64-softmmu/qemu-system-aarch64
+        path: qemu-src/build/qemu-system-aarch64
