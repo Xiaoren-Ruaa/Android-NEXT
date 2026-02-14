@@ -1,12 +1,12 @@
-name: Build QEMU ARM64 (Meson)
+name: Build QEMU ARM64
 
 on:
+  workflow_dispatch:
   push:
     branches: ["main"]
-  workflow_dispatch:
 
 jobs:
-  build-arm64-qemu:
+  build:
     runs-on: ubuntu-latest
 
     env:
@@ -14,44 +14,53 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y git python3 python3-pip \
+        sudo apt install -y \
+          git python3 python3-pip \
           ninja-build meson pkg-config \
-          libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev \
-          libaio-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          libglib2.0-dev libfdt-dev libpixman-1-dev \
+          zlib1g-dev libaio-dev \
+          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
     - name: Clone QEMU source
-      run: git clone --depth 1 https://github.com/qemu/qemu.git qemu-src
-
-    - name: Configure Meson build
       run: |
-        mkdir -p qemu-src/build
-        cd qemu-src/build
-        meson setup --cross-file ../aarch64-cross.txt \
+        git clone --depth 1 https://github.com/qemu/qemu.git qemu-src
+
+    - name: Clean old build (safety)
+      run: |
+        rm -rf qemu-build
+
+    - name: Configure (Meson cross compile)
+      run: |
+        mkdir qemu-build
+        cd qemu-build
+
+        meson setup ../qemu-src \
+          --cross-file ../.github/cross/arm64-cross.txt \
           --prefix=${PREFIX} \
           -Dtargets=aarch64-softmmu \
           -Dvirtfs=enabled \
           -Dsystem=true \
           -Dlinux-user=false \
-          --buildtype=release .
+          --buildtype=release
 
-    - name: Compile with Ninja
+    - name: Compile
       run: |
-        cd qemu-src/build
+        cd qemu-build
         ninja -j$(nproc)
         ninja install
 
-    - name: Check binary
+    - name: Verify binary architecture
       run: |
         file ${{ env.PREFIX }}/bin/qemu-system-aarch64
         ls -lh ${{ env.PREFIX }}/bin
 
-    - name: Upload ARM64 binary
+    - name: Upload ARM64 QEMU
       uses: actions/upload-artifact@v4
       with:
-        name: qemu-system-arm64
+        name: qemu-system-aarch64-arm64
         path: ${{ env.PREFIX }}/bin/qemu-system-aarch64
