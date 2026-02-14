@@ -27,7 +27,7 @@ jobs:
     - name: Download Latest Linux Kernel
       run: |
         # 获取最新 stable 版本号
-        LATEST=$(curl -s https://www.kernel.org/releases.json | python3 -c "import sys, json; print(json.load(sys.stdin)['latest_stable']['version'])")
+        LATEST=$(curl -s https://www.kernel.org/releases.json | python3 -c "import sys,json; print(json.load(sys.stdin)['latest_stable']['version'])")
         echo "Latest stable kernel: $LATEST"
         wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${LATEST}.tar.xz
         tar -xf linux-${LATEST}.tar.xz
@@ -39,10 +39,10 @@ jobs:
         echo "Kernel dir: $KDIR"
         cd "$KDIR"
 
-        # 使用官方 QEMU virt defconfig
-        make ARCH=arm64 virt_defconfig
+        # 使用通用 ARM64 defconfig
+        make ARCH=arm64 defconfig
 
-        # 启用常用 virtio 驱动和功能
+        # 手动启用常用 virtio 驱动和功能
         scripts/config --enable VIRTIO
         scripts/config --enable VIRTIO_PCI
         scripts/config --enable VIRTIO_NET
