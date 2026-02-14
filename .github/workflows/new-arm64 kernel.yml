@@ -22,7 +22,7 @@ jobs:
           wget \
           gcc-aarch64-linux-gnu \
           libncurses-dev \
-          python3
+          python3 curl
 
     - name: Download Latest Linux Kernel
       run: |
@@ -34,10 +34,15 @@ jobs:
 
     - name: Configure Kernel for QEMU virt
       run: |
-        cd linux-*
+        # 找到解压后的 Linux 目录
+        KDIR=$(ls -d linux-*/ | head -n 1)
+        echo "Kernel dir: $KDIR"
+        cd "$KDIR"
+
+        # 使用官方 QEMU virt defconfig
         make ARCH=arm64 virt_defconfig
 
-        # 启用常用 virtio 驱动和网络、块设备、console
+        # 启用常用 virtio 驱动和功能
         scripts/config --enable VIRTIO
         scripts/config --enable VIRTIO_PCI
         scripts/config --enable VIRTIO_NET
@@ -61,11 +66,13 @@ jobs:
         scripts/config --enable CRYPTO_AES
         scripts/config --enable CRYPTO_SHA256
 
+        # 补齐默认值
         make ARCH=arm64 olddefconfig
 
     - name: Build Kernel
       run: |
-        cd linux-*
+        KDIR=$(ls -d linux-*/ | head -n 1)
+        cd "$KDIR"
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
     - name: Upload Kernel Image
