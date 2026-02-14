@@ -1,0 +1,42 @@
+name: Build QEMU ARM64
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  build-qemu:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v3
+
+    - name: Install build dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y git libglib2.0-dev libfdt-dev libpixman-1-dev \
+          zlib1g-dev libaio-dev ninja-build libtool python3 \
+          gcc g++ make pkg-config
+
+    - name: Clone QEMU repo
+      run: |
+        git clone --depth 1 https://github.com/qemu/qemu.git qemu-src
+
+    - name: Configure / Build QEMU
+      run: |
+        cd qemu-src
+        ./configure \
+          --target-list=aarch64-softmmu \
+          --enable-virtfs \
+          --disable-sdl \
+          --disable-cocoa \
+          --disable-linux-user
+        make -j$(nproc)
+
+    - name: Upload qemu-system-aarch64 binary
+      uses: actions/upload-artifact@v3
+      with:
+        name: qemu-system-arm64
+        path: qemu-src/aarch64-softmmu/qemu-system-aarch64
