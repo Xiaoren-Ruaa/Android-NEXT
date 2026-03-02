@@ -1,49 +1,48 @@
-name: Android Python 3.13 Static SSL Build
+name: Android Python 3.13 Binary Build
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-android-python:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Python Source
+      - name: Checkout Source
         uses: actions/checkout@v4
         with:
           repository: 'python/cpython'
           ref: 'v3.13.0'
 
       - name: 1. Build Host Python (Helper)
+        # 必须先编译出本地 python 才能进行交叉编译
         run: |
           ./configure
           make -j$(nproc)
-          # 必须生成此文件以供交叉编译使用
-          cp python host_python 
+          cp python host_python
 
-      - name: 2. Setup Android NDK Environment
+      - name: 2. Setup NDK & OpenSSL
+        # 自动获取 NDK 路径并编译针对 Android 的静态 OpenSSL
         run: |
-          # 使用 GitHub 托管机自带的 NDK 路径
-          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk-bundle" >> $GITHUB_ENV
-          echo "TOOLCHAIN=$ANDROID_HOME/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
-          echo "TARGET=aarch64-linux-android" >> $GITHUB_ENV
-          echo "API=29" >> $GITHUB_ENV
-
-      - name: 3. Build Static OpenSSL for Android
-        # 必须先有 OpenSSL 静态库，否则 Python 配置会报错
-        run: |
+          # 自动定位 NDK
+          NDK_PATH=$(ls -d $ANDROID_SDK_ROOT/ndk/* | tail -1)
+          echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
+          echo "TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
+          
+          # 编译静态 OpenSSL
           git clone --depth 1 -b openssl-3.0.13 https://github.com/openssl/openssl.git
           cd openssl
-          export PATH=$TOOLCHAIN/bin:$PATH
-          ./Configure android-arm64 no-shared -D__ANDROID_API__=$API --prefix=$(pwd)/dist
+          export ANDROID_NDK_ROOT=$NDK_PATH
+          export PATH=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          ./Configure android-arm64 no-shared -D__ANDROID_API__=29 --prefix=$(pwd)/dist
           make -j$(nproc)
           make install_sw
           echo "OPENSSL_DIR=$(pwd)/dist" >> $GITHUB_ENV
 
-      - name: 4. Configure Python with Static SSL
+      - name: 3. Configure Python Binary
+        # 写入 Setup 文件以强制静态链接 SSL 并禁用报错模块
         run: |
-          export CC=$TOOLCHAIN/bin/$TARGET$API-clang
+          export CC=$TOOLCHAIN/bin/aarch64-linux-android29-clang
           
-          # 写入 Setup 文件屏蔽缺失模块
           cat << EOF > Modules/Setup
           _ssl _ssl.c -I${{ env.OPENSSL_DIR }}/include -L${{ env.OPENSSL_DIR }}/lib64 -lssl -lcrypto
           _hashlib _hashopenssl.c -I${{ env.OPENSSL_DIR }}/include -L${{ env.OPENSSL_DIR }}/lib64 -lssl -lcrypto
@@ -51,20 +50,21 @@ jobs:
           _lzma _bz2 _readline _sqlite3 _tkinter
           EOF
 
-          ./configure --host=$TARGET --build=x86_64-linux-gnu \
-            --prefix=/data/local/tmp/python \
+          ./configure --host=aarch64-linux-android --build=x86_64-linux-gnu \
             --with-build-python=$(pwd)/host_python \
             --disable-shared --without-ensurepip \
             --with-openssl=${{ env.OPENSSL_DIR }} \
             ac_cv_file__dev_ptmx=yes ac_cv_file__dev_ptc=no
 
-      - name: 5. Final Compilation
+      - name: 4. Final Build
         run: |
           make -j$(nproc)
-          make install DESTDIR=$(pwd)/output
+          # 提取纯二进制文件
+          mkdir -p output
+          cp python output/python3.13_android
 
       - name: Upload Python Binary
         uses: actions/upload-artifact@v4
         with:
-          name: python-3.13-android-binary
-          path: output/data/local/tmp/python/bin/python3.13
+          name: python-binary-aarch64
+          path: output/python3.13_android
