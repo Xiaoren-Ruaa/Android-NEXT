@@ -1,54 +1,57 @@
-name: Build Vim for Android (AArch64)
+name: Production Grade Vim for Android
 
 on:
-  workflow_dispatch: # 手动点击按钮触发编译
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Install Cross Compiler
+      - name: Install Toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu wget git make
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu make git wget
 
-      - name: Build Ncurses 6.5
+      - name: Build Ncurses 6.5 (Wide-character support)
         run: |
           wget https://invisible-mirror.net/archives/ncurses/ncurses-6.5.tar.gz
           tar -xf ncurses-6.5.tar.gz
           cd ncurses-6.5
           ./configure --host=aarch64-linux-gnu \
-                      --prefix=$(pwd)/build_static \
-                      --with-shared=no --enable-static --enable-widec \
-                      --without-debug CPPFLAGS="-P"
+                      --prefix=$(pwd)/dist \
+                      --enable-widec --enable-static --with-shared=no \
+                      --without-debug --without-ada --enable-termcap \
+                      CPPFLAGS="-P"
           make -j$(nproc)
-          # 手动理库，确保 Vim 能找到静态文件
-          mkdir -p build_static/lib build_static/include/ncursesw
-          cp lib/libncursesw.a build_static/lib/
-          cp include/*.h build_static/include/ncursesw/
-          cp include/*.h build_static/include/
+          make install # 这次在纯净环境可以直接 install
 
-      - name: Build Vim
+      - name: Build Vim (Full Feature Set)
         run: |
           git clone --depth 1 https://github.com/vim/vim.git
           cd vim/src
-          # 强制指定 cross_compiling=yes 绕过加载器报错
+          # 保证完整性：开启 normal 特性，强制静态链接
           ./configure --host=aarch64-linux-gnu \
                       CC=aarch64-linux-gnu-gcc \
                       --with-tlib=ncursesw --enable-gui=no --with-features=normal \
+                      --enable-multibyte --disable-selinux \
                       cross_compiling=yes \
                       ac_cv_sizeof_int=4 ac_cv_sizeof_long=8 ac_cv_sizeof_off_t=8 ac_cv_sizeof_voidp=8 \
-                      CPPFLAGS="-I$(pwd)/../../ncurses-6.5/build_static/include" \
-                      LDFLAGS="-static -L$(pwd)/../../ncurses-6.5/build_static/lib -Wl,-dynamic-linker,/system/bin/linker64" \
+                      CPPFLAGS="-I$(pwd)/../../ncurses-6.5/dist/include -I$(pwd)/../../ncurses-6.5/dist/include/ncursesw" \
+                      LDFLAGS="-static -L$(pwd)/../../ncurses-6.5/dist/lib -Wl,-dynamic-linker,/system/bin/linker64" \
                       LIBS="-lncursesw"
           make -j$(nproc)
-          aarch64-linux-gnu-strip vim # 瘦身
+          aarch64-linux-gnu-strip vim # 移除冗余符号但不影响功能
+
+      - name: Package Runtime (For Stability)
+        run: |
+          # Vim 需要 runtime 文件夹才能实现完整功能（如语法高亮）
+          cd vim
+          mkdir -p publish
+          cp src/vim publish/
+          tar -czvf vim_with_runtime.tar.gz publish/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vim-android-aarch64
-          path: vim/src/vim
+          name: vim-production-aarch64
+          path: vim_with_runtime.tar.gz
