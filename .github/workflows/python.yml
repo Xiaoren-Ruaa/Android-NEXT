@@ -1,0 +1,80 @@
+name: Android Python 3.13 Static SSL Build
+
+on:
+  workflow_dispatch: # 手动触发
+
+jobs:
+  build-android-python:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Python Source
+        uses: actions/checkout@v4
+        with:
+          repository: 'python/cpython'
+          ref: 'v3.13.0'
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev zlib1g-dev
+
+      - name: 1. Build Host Python (The Helper)
+        # 交叉编译必须先有同版本的宿主机助手
+        run: |
+          ./configure
+          make -j$(nproc)
+          # 验证助手是否可用
+          ./python --version 
+
+      - name: 2. Setup Android NDK
+        # 设置 NDK 路径和交叉编译变量
+        run: |
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk-bundle" >> $GITHUB_ENV
+          echo "TOOLCHAIN=$ANDROID_HOME/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
+          echo "TARGET=aarch64-linux-android" >> $GITHUB_ENV
+          echo "API=29" >> $GITHUB_ENV
+
+      - name: 3. Configure Static SSL & Disable Modules
+        # 强制合并 SSL 并通过 Setup 文件屏蔽报错模块
+        run: |
+          cat << EOF > Modules/Setup
+          # 静态链接 OpenSSL
+          _ssl _ssl.c -I/workspaces/Linux/openssl_static/include -L/workspaces/Linux/openssl_static/lib -lssl -lcrypto
+          _hashlib _hashopenssl.c -I/workspaces/Linux/openssl_static/include -L/workspaces/Linux/openssl_static/lib -lssl -lcrypto
+          
+          # 禁用 Android 不支持或缺少的模块
+          *disabled*
+          _lzma
+          _bz2
+          _readline
+          _sqlite3
+          _tkinter
+          _curses
+          _curses_panel
+          EOF
+
+      - name: 4. Cross-Compile for Android
+        # 执行配置，禁用包管理器以减小体积
+        run: |
+          export CC=$TOOLCHAIN/bin/$TARGET$API-clang
+          export HOST_PYTHON=$(pwd)/python
+          
+          ./configure --host=$TARGET --build=x86_64-linux-gnu \
+            --prefix=/data/local/tmp/python \
+            --with-build-python=$HOST_PYTHON \
+            --disable-shared \
+            --without-ensurepip \
+            --with-openssl=/workspaces/Linux/openssl_static \
+            ac_cv_file__dev_ptmx=yes ac_cv_file__dev_ptc=no
+
+      - name: 5. Build and Package
+        run: |
+          make -j$(nproc)
+          # 只提取二进制文件和库
+          make install DESTDIR=$(pwd)/python_android_build
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-android-static-ssl
+          path: python_android_build/data/local/tmp/python/
