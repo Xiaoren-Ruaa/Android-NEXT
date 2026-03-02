@@ -1,28 +1,30 @@
-name: Build Latest e2fsprogs Static
-on: [push, workflow_dispatch]
+name: Manual Build e2fsprogs Static
+on: 
+  workflow_dispatch: # 开启手动触发按钮
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
         with:
           repository: 'tytso/e2fsprogs'
-          ref: 'master' # 确保获取 2025 年 7 月的最新代码
+          ref: 'master' # 获取 2025 年 7 月最新代码
 
-      - name: Set up NDK
-        uses: nndk/setup-ndk@v1
-        with:
-          ndk-version: r26b # 与你之前使用的版本一致
+      - name: Install NDK
+        run: |
+          # 直接下载并解压官方 NDK，避免插件失效错误
+          wget -q https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
+          unzip -q android-ndk-r26b-linux.zip
+          echo "NDK_PATH=$GITHUB_WORKSPACE/android-ndk-r26b" >> $GITHUB_ENV
 
       - name: Configure and Build
         run: |
           mkdir build && cd build
-          # 定义交叉编译工具链路径
-          export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          # 物理锁定编译器路径，避免路径冗余错误
+          TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
           
-          # 核心配置流：强制静态链接且使用内建库
           ../configure --host=aarch64-linux-android --build=x86_64-linux-gnu \
               --enable-libuuid=internal \
               --enable-libblkid=internal \
@@ -32,13 +34,13 @@ jobs:
               LDFLAGS="-static" \
               cross_compiling=yes
 
-          # 强制使用拷贝代替硬链接，双重保险避开权限报错
+          # 物理强制拷贝，彻底杜绝权限导致的硬链接报错
           make -j$(nproc) LN="cp -p" LN_S="cp -p" e2fsck/e2fsck resize/resize2fs
 
-      - name: Upload Artifacts
+      - name: Upload Static Binaries
         uses: actions/upload-artifact@v4
         with:
-          name: e2fsprogs-v1.47.3-static
+          name: e2fsprogs-1.47.3-static
           path: |
             build/e2fsck/e2fsck
             build/resize/resize2fs
