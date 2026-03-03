@@ -13,21 +13,24 @@ jobs:
           repository: util-linux/util-linux
           fetch-depth: 1
 
-      - name: Install Tools
+      - name: Install Critical Tools
         run: |
           sudo apt-get update
-          # 安装交叉编译器和所有构建工具
+          # 核心修复：必须安装 libc6-dev-arm64-cross 才能让交叉编译器工作
           sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+                                 libc6-dev-arm64-cross \
                                  autoconf automake libtool pkg-config gettext autopoint bison flex
 
       - name: Build
         run: |
           ./autogen.sh
-          # 核心修复：添加 -all-static 确保不留下任何动态库依赖
+          # 强制指定交叉编译变量
           export CC=aarch64-linux-gnu-gcc
+          export STRIP=aarch64-linux-gnu-strip
+          
+          # 开启极致静态链接：-static-libgcc 确保 C 运行时也打进去
           ./configure --host=aarch64-linux-gnu \
-                      --prefix=/usr \
-                      LDFLAGS="-static -all-static" \
+                      LDFLAGS="-static -static-libgcc -Wl,--gc-sections" \
                       --enable-static \
                       --disable-shared \
                       --disable-all-programs \
@@ -43,10 +46,10 @@ jobs:
           make -j$(nproc) fstrim
           
           # 极致瘦身
-          aarch64-linux-gnu-strip --strip-all fstrim
+          $STRIP --strip-all fstrim
 
-      - name: Upload
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fstrim-static-final
+          name: fstrim-android-aarch64
           path: fstrim
