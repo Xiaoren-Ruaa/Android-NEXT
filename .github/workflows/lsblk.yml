@@ -1,53 +1,52 @@
-name: Build Static lsblk
+name: Build Static lsblk (Multi-Arch)
 
 on:
-  workflow_dispatch: # 手动触发编译
+  workflow_dispatch: # 手动点击 Run workflow 触发
 
 jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [x86_64, aarch64]
+        # 同时定义两个架构
         include:
-          - arch: x86_64
-            target: x86_64-linux-musl
           - arch: aarch64
             target: aarch64-linux-musl
+          - arch: x86_64
+            target: x86_64-linux-musl
 
     steps:
       - name: Checkout util-linux
         uses: actions/checkout@v4
         with:
           repository: util-linux/util-linux
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Get latest tag
-        id: get_tag
-        run: echo "TAG=$(git describe --tags `git rev-list --tags --max-count=1` | sed 's/v//')" >> $GITHUB_ENV
-
-      - name: Install musl toolchain
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools autoconf automake libtool pkg-config bison flex gettext
-          # 下载对应的跨平台 musl 工具链
-          if [ "${{ matrix.arch }}" = "aarch64" ]; then
-            wget https://musl.cc/aarch64-linux-musl-cross.tgz
-            tar -xzf aarch64-linux-musl-cross.tgz
-            echo "$(pwd)/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
-          fi
+          sudo apt-get install -y autoconf automake libtool pkg-config bison flex gettext autopoint
 
-      - name: Configure and Build
+      # 使用专用 Action 快速安装稳定的 musl 交叉编译器
+      - name: Setup musl-gcc
+        uses: xavier-niu/setup-musl@v1
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Build lsblk
         run: |
           ./autogen.sh
           
-          # 设置编译器
+          # 设置编译器变量
           if [ "${{ matrix.arch }}" = "aarch64" ]; then
-            export CC=aarch64-linux-musl-gcc
+            export CROSS_COMPILE=aarch64-linux-musl-
           else
-            export CC=musl-gcc
+            export CROSS_COMPILE=x86_64-linux-musl-
           fi
-
+          
+          export CC="${CROSS_COMPILE}gcc"
+          
+          # 核心配置：禁用不必要的模块，强制静态链接
           ./configure \
             --host=${{ matrix.target }} \
             LDFLAGS="-static" \
@@ -57,15 +56,21 @@ jobs:
             --without-udev \
             --without-ncurses \
             --without-python \
-            --without-tinfo
+            --without-tinfo \
+            --without-cap-ng \
+            --without-libz \
+            --without-libmagic \
+            --disable-bash-completion \
+            --disable-nls
 
+          # 编译 lsblk，它会自动处理内部依赖库的静态编译
           make lsblk -j$(nproc)
           
-          # 移除符号表以减小体积
-          ${CC/gcc/strip} lsblk
+          # 使用对应的 strip 工具压缩体积
+          ${CROSS_COMPILE}strip lsblk
 
-      - name: Upload Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lsblk-${{ matrix.arch }}
+          name: lsblk-${{ matrix.arch }}-static
           path: lsblk
