@@ -1,4 +1,4 @@
-name: Build All Four Core Libs (Full Bundle)
+name: Build All Four Core Libs (Optimized for Android)
 
 on:
   workflow_dispatch:
@@ -25,40 +25,56 @@ jobs:
           export TOOLCHAIN=$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64
           export TARGET=aarch64-linux-android33
           export CC=$TOOLCHAIN/bin/$TARGET-clang
-          export AR=$TOOLCHAIN/bin/llvm-ar
           export STRIP=$TOOLCHAIN/bin/llvm-strip
 
-          # --- 核心兼容性补丁集 ---
-          cat <<EOF > android_fix.h
-          #ifndef ANDROID_FIX_H
-          #define ANDROID_FIX_H
-          #define _GNU_SOURCE 1
-          #include <dirent.h>
+          # --- 1. 注入完整的 strverscmp 实现 (解决图 3454 核心报错) ---
+          # Android Bionic 不包含此函数，必须在基础工具库中手动补全
+          cat <<EOF >> lib/strutils.c
+          #include <ctype.h>
           #include <string.h>
-          #include <sys/types.h>
-          #include <stdio.h>
-          extern int strverscmp (const char *__s1, const char *__s2);
-          static inline int versionsort(const struct dirent **a, const struct dirent **b) {
-              return strverscmp((*a)->d_name, (*b)->d_name);
+          int strverscmp(const char *s1, const char *s2) {
+              const unsigned char *p1 = (const unsigned char *) s1;
+              const unsigned char *p2 = (const unsigned char *) s2;
+              unsigned char c1, c2;
+              int state;
+              int diff;
+              while ((c1 = *p1++) == (c2 = *p2++) && c1 != '\0');
+              if (c1 == '\0' && c2 == '\0') return 0;
+              state = isdigit(c1) && isdigit(c2);
+              if (!state) return c1 - c2;
+              p1--; p2--;
+              while (p1 > (const unsigned char *)s1 && isdigit(p1[-1])) p1--, p2--;
+              state = 0;
+              while (isdigit(*p1) && isdigit(*p2)) {
+                  if (state == 0 && *p1 != *p2) state = (*p1 < *p2) ? -1 : 1;
+                  p1++; p2++;
+              }
+              if (isdigit(*p1)) return 1;
+              if (isdigit(*p2)) return -1;
+              return state;
           }
-          #ifdef scandirat
-          #undef scandirat
-          #endif
-          #define scandirat(fd, dir, namelist, filter, compar) \
-              scandirat(fd, dir, namelist, (int (*)(const struct dirent *))filter, \
-              (int (*)(const struct dirent **, const struct dirent **))compar)
-          #endif
           EOF
 
+          # --- 2. 补全 Shell 存根与版本排序修复 (解决图 3446, 3447) ---
           sed -i '1i void setusershell(void) {}' lib/shells.c
           sed -i '1i void endusershell(void) {}' lib/shells.c
-          sed -i '1i char *getusershell(void) { return 0; }' lib/shells.c
-          sed -i '1i #include "android_fix.h"' libmount/src/tab_parse.c
-          echo "// Removed for Android" > libmount/src/monitor_fanotify.c
-          sed -i '/mnt_monitor_enable_fanotify/d' libmount/src/libmount.sym
-          sed -i '/mnt_monitor_get_fanotify_fd/d' libmount/src/libmount.sym
+          sed -i '1i char *getusershell(void) { return NULL; }' lib/shells.c
+          # 将 versionsort 替换为通用的 alphasort (NDK 支持)
+          sed -i 's/versionsort/alphasort/g' libmount/src/tab_parse.c
 
-          # --- 配置四大金刚库 ---
+          # --- 3. 处理 Fanotify 符号版本封锁 (解决图 3450) ---
+          # 直接在监控源码里提供符号，防止 symbol version script 校验失败
+          cat <<EOF > libmount/src/monitor_fanotify.c
+          #include <stdlib.h>
+          struct libmnt_monitor;
+          int mnt_monitor_enable_fanotify(struct libmnt_monitor *mn, int enable) { return -1; }
+          int mnt_monitor_get_fanotify_fd(struct libmnt_monitor *mn) { return -1; }
+          EOF
+
+          # --- 4. 配置与强制链接参数 ---
+          # 使用 --allow-shlib-undefined 确保在构建库时不会因为循环依赖而中断
+          export LDFLAGS="-Wl,-rpath=/system/lib64 -Wl,--dynamic-linker=/system/bin/linker64 -Wl,--allow-shlib-undefined"
+
           ./configure --host=aarch64-linux-android \
                       --prefix=/system \
                       --enable-shared \
@@ -69,35 +85,34 @@ jobs:
                       --enable-libmount \
                       --enable-libsmartcols \
                       --disable-bash-completion \
-                      --disable-pylibmount \
                       --without-python \
-                      --without-systemd \
                       --without-udev \
                       --without-ncurses \
-                      --without-selinux \
-                      --disable-widechar \
-                      --disable-makeinstall-chown \
                       --disable-libmount-mountfd-support \
-                      --disable-libmount-support-monitor
+                      --disable-monitor-fanotify
 
-          make -j$(nproc) || echo "Ignore minor build errors"
-          
-          # --- 全量提取产物 ---
+          make -j$(nproc)
+
+          # --- 5. 产物提取与重构 ---
           mkdir -p output/lib64
-          # 搜索并拷贝四大库的所有版本及其软链接
-          for libname in libuuid libblkid libmount libsmartcols; do
-            find . -name "${libname}.so*" -exec cp -d {} output/lib64/ \;
+          # 拷贝 .so 文件，包括带版本号的实体和软链接
+          for lib in uuid blkid mount smartcols; do
+            cp -d .libs/lib${lib}.so* output/lib64/
           done
-          
-          # 提取 pkg-config 文件（如果你以后要在手机上跑编译器）
-          mkdir -p output/pkgconfig
-          find . -name "*.pc" -exec cp {} output/pkgconfig/ \; || true
-          
-          # 瘦身处理
+
+          # 自动为 Android 补全缺失的 .so.1 软链接
+          cd output/lib64
+          ln -sf libuuid.so libuuid.so.1
+          ln -sf libblkid.so libblkid.so.1
+          ln -sf libmount.so libmount.so.1
+          ln -sf libsmartcols.so libsmartcols.so.1
+          cd ../..
+
+          # 瘦身并清除符号表以减小体积
           find output/lib64/ -type f -name "*.so*" -exec $STRIP --strip-unneeded {} +
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: util-linux-libs-v2.42-android33
+          name: util-linux-libs-fixed-android
           path: output/
