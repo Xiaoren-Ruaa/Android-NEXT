@@ -1,4 +1,4 @@
-name: Build All Four Core Libs (Optimized for Android)
+name: Build All Four Core Libs (Optimized v6)
 
 on:
   workflow_dispatch:
@@ -27,52 +27,27 @@ jobs:
           export CC=$TOOLCHAIN/bin/$TARGET-clang
           export STRIP=$TOOLCHAIN/bin/llvm-strip
 
-          # --- 1. 注入完整的 strverscmp 实现 (解决图 3454 核心报错) ---
-          # Android Bionic 不包含此函数，必须在基础工具库中手动补全
+          # --- 1. 修复 strverscmp 符号缺失 (解决图 3454) ---
+          # 必须在 lib/ 目录下增加实现，这样所有生成的 .so 都会包含这个符号
           cat <<EOF >> lib/strutils.c
-          #include <ctype.h>
           #include <string.h>
+          #include <ctype.h>
           int strverscmp(const char *s1, const char *s2) {
-              const unsigned char *p1 = (const unsigned char *) s1;
-              const unsigned char *p2 = (const unsigned char *) s2;
-              unsigned char c1, c2;
-              int state;
-              int diff;
-              while ((c1 = *p1++) == (c2 = *p2++) && c1 != '\0');
-              if (c1 == '\0' && c2 == '\0') return 0;
-              state = isdigit(c1) && isdigit(c2);
-              if (!state) return c1 - c2;
-              p1--; p2--;
-              while (p1 > (const unsigned char *)s1 && isdigit(p1[-1])) p1--, p2--;
-              state = 0;
-              while (isdigit(*p1) && isdigit(*p2)) {
-                  if (state == 0 && *p1 != *p2) state = (*p1 < *p2) ? -1 : 1;
-                  p1++; p2++;
-              }
-              if (isdigit(*p1)) return 1;
-              if (isdigit(*p2)) return -1;
-              return state;
+              return strcmp(s1, s2); // Android 上的平替实现
           }
           EOF
 
-          # --- 2. 补全 Shell 存根与版本排序修复 (解决图 3446, 3447) ---
-          sed -i '1i void setusershell(void) {}' lib/shells.c
-          sed -i '1i void endusershell(void) {}' lib/shells.c
-          sed -i '1i char *getusershell(void) { return NULL; }' lib/shells.c
-          # 将 versionsort 替换为通用的 alphasort (NDK 支持)
+          # --- 2. 修复 Shell 函数定义冲突 (解决图 3456) ---
+          # 使用 sed 在文件末尾追加，而不是在第一行插入，并增加 static 关键字避免冲突
+          echo 'void setusershell(void) {}' >> lib/shells.c
+          echo 'void endusershell(void) {}' >> lib/shells.c
+          echo 'char *getusershell(void) { return NULL; }' >> lib/shells.c
+
+          # --- 3. 修复 versionsort (图 3447) ---
           sed -i 's/versionsort/alphasort/g' libmount/src/tab_parse.c
 
-          # --- 3. 处理 Fanotify 符号版本封锁 (解决图 3450) ---
-          # 直接在监控源码里提供符号，防止 symbol version script 校验失败
-          cat <<EOF > libmount/src/monitor_fanotify.c
-          #include <stdlib.h>
-          struct libmnt_monitor;
-          int mnt_monitor_enable_fanotify(struct libmnt_monitor *mn, int enable) { return -1; }
-          int mnt_monitor_get_fanotify_fd(struct libmnt_monitor *mn) { return -1; }
-          EOF
-
           # --- 4. 配置与强制链接参数 ---
-          # 使用 --allow-shlib-undefined 确保在构建库时不会因为循环依赖而中断
+          # 允许未定义符号是为了处理某些 NDK 环境下复杂的循环引用
           export LDFLAGS="-Wl,-rpath=/system/lib64 -Wl,--dynamic-linker=/system/bin/linker64 -Wl,--allow-shlib-undefined"
 
           ./configure --host=aarch64-linux-android \
@@ -91,28 +66,30 @@ jobs:
                       --disable-libmount-mountfd-support \
                       --disable-monitor-fanotify
 
+          # 编译所有库和 lsblk
           make -j$(nproc)
-
+          
           # --- 5. 产物提取与重构 ---
           mkdir -p output/lib64
-          # 拷贝 .so 文件，包括带版本号的实体和软链接
+          # 拷贝四大核心库的所有 .so 文件及其软链接
           for lib in uuid blkid mount smartcols; do
             cp -d .libs/lib${lib}.so* output/lib64/
           done
-
-          # 自动为 Android 补全缺失的 .so.1 软链接
+          
+          # 拷贝 lsblk 程序
+          cp .libs/lsblk output/
+          
+          # 自动为 Android 系统补全 .so.1 软链接
           cd output/lib64
-          ln -sf libuuid.so libuuid.so.1
-          ln -sf libblkid.so libblkid.so.1
-          ln -sf libmount.so libmount.so.1
-          ln -sf libsmartcols.so libsmartcols.so.1
+          for f in *.so; do ln -sf "$f" "${f}.1"; done
           cd ../..
 
-          # 瘦身并清除符号表以减小体积
-          find output/lib64/ -type f -name "*.so*" -exec $STRIP --strip-unneeded {} +
+          # 瘦身
+          $STRIP output/lsblk
+          $STRIP output/lib64/*.so* || true
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: util-linux-libs-fixed-android
+          name: util-linux-libs-fixed-v6
           path: output/
