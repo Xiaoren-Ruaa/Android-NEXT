@@ -1,4 +1,4 @@
-name: Build Android 13 Shared Libs (Success-Final)
+name: Build Android 13 Shared Libs (Master-Fix-V2)
 
 on:
   workflow_dispatch:
@@ -32,39 +32,38 @@ jobs:
           cat <<EOF > android_fix.h
           #ifndef ANDROID_FIX_H
           #define ANDROID_FIX_H
-          
           #define _GNU_SOURCE 1
           #include <dirent.h>
           #include <string.h>
           #include <sys/types.h>
           #include <stdio.h>
-
-          // 显式声明 strverscmp 以解决图 1000003244 的报错
           extern int strverscmp (const char *__s1, const char *__s2);
-
-          // 静态内联实现 versionsort 解决图 1000003242 的冲突
           static inline int versionsort(const struct dirent **a, const struct dirent **b) {
               return strverscmp((*a)->d_name, (*b)->d_name);
           }
-
-          // 强制适配 Android Bionic 的 scandirat 类型限制
           #ifdef scandirat
           #undef scandirat
           #endif
           #define scandirat(fd, dir, namelist, filter, compar) \
               scandirat(fd, dir, namelist, (int (*)(const struct dirent *))filter, \
               (int (*)(const struct dirent **, const struct dirent **))compar)
-
           #endif
           EOF
 
-          # --- 注入补丁 ---
+          # --- 注入补丁与暴力修复 ---
+          # 1. 修复 shell 缺失
           sed -i '1i void setusershell(void) {}' lib/shells.c
           sed -i '1i void endusershell(void) {}' lib/shells.c
           sed -i '1i char *getusershell(void) { return 0; }' lib/shells.c
+
+          # 2. 注入核心补丁
           sed -i '1i #include "android_fix.h"' libmount/src/tab_parse.c
 
-          # --- 配置参数：新增禁用 fanotify 解决图 1000003245 报错 ---
+          # 3. 终极暴力：彻底解决 fanotify.h 报错 (针对图 1000003246)
+          # 直接清空该文件，使其不产生任何代码
+          echo "// Cleared for Android Build" > libmount/src/monitor_fanotify.c
+
+          # 配置参数
           ./configure --host=aarch64-linux-android \
                       --prefix=/system \
                       --enable-shared \
@@ -90,7 +89,7 @@ jobs:
                       --disable-runuser \
                       --disable-newgrp \
                       --disable-libmount-mountfd-support \
-                      --disable-libmount-support-monitor # 关键：彻底解决 fanotify 缺失
+                      --disable-libmount-support-monitor
 
           make -j$(nproc)
           
