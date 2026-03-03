@@ -1,4 +1,4 @@
-name: Build NDK-Native lsblk (Ultimate Fix)
+name: Build NDK-Native lsblk (Final Fix)
 
 on:
   workflow_dispatch:
@@ -23,13 +23,13 @@ jobs:
         with:
           ndk-version: r26b
 
-      - name: Patch NDK Missing Functions
+      - name: Patch NDK Compatibility
         run: |
           # 修复 getusershell/endusershell (图 3446 报错)
           sed -i '1i #define getusershell() (NULL)\n#define endusershell() ((void)0)' lib/shells.c
           
           # 修复 versionsort 缺失 (图 3447 报错)
-          # 在 libmount/src/tab_parse.c 中将 versionsort 替换为通用的 alphasort
+          # 将 versionsort 替换为 Android 存在的 alphasort
           sed -i 's/versionsort/alphasort/g' libmount/src/tab_parse.c
 
       - name: Configure and Build
@@ -41,7 +41,6 @@ jobs:
           export API=29
           
           export CC=$TOOLCHAIN/bin/${TARGET}${API}-clang
-          # 增加编译选项以允许忽略这些非致命的符号差异
           export CFLAGS="-Wno-implicit-function-declaration -Wno-int-conversion"
           export LDFLAGS="-Wl,-rpath=/system/lib64 -Wl,--dynamic-linker=/system/bin/linker64"
 
@@ -58,8 +57,12 @@ jobs:
             --without-ncurses \
             --without-python \
             --disable-bash-completion \
-            --disable-nls
+            --disable-nls \
+            --disable-widechar \
+            --disable-libmount-mountfd-support \
+            --disable-monitor-fanotify # 关键：解决图 3448 的 sys/fanotify.h 缺失问题
 
+          # 编译
           make lsblk -j$(nproc)
           
           # 提取 ELF 真身并瘦身
