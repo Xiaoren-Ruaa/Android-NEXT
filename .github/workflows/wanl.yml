@@ -1,7 +1,7 @@
-name: Build RTL8812AU Final Fix
+name: Build RTL8812AU Ultimate Fix
 
 on:
-  workflow_dispatch: # 支持手动运行
+  workflow_dispatch: 
 
 jobs:
   build:
@@ -18,39 +18,40 @@ jobs:
 
       - name: Fetch Kernel Source & Driver
         run: |
-          # 1. 拉取内核源码（增加重试逻辑）
           git clone --depth 1 https://github.com/OnePlusOSS/android_kernel_oneplus_sm8475.git kernel
-          # 2. 拉取网卡驱动
           git clone --depth 1 https://github.com/aircrack-ng/rtl8812au.git driver
 
-      - name: Patch Kconfig & Align Version
+      - name: Nuclear Patch & Align Version
         run: |
           cd kernel
-          # A. 核心修复：删除所有不存在的 oplus 私有目录引用，防止 Kconfig 报错
-          # 这一步将解决你截图中提到的 init/Kconfig:837 报错
-          find . -name "Kconfig*" | xargs sed -i '/oplus_perf_sched/d'
-          find . -name "Kconfig*" | xargs sed -i '/oplus_pft/d'
-          find . -name "Kconfig*" | xargs sed -i '/oplus_fsc/d'
-          find . -name "Kconfig*" | xargs sed -i '/oplus_pxp/d'
+          # --- 核心暴力逻辑：递归修复所有 Kconfig 缺失文件引用 ---
+          echo "Starting Nuclear Patch for missing Kconfigs..."
+          # 寻找所有 source 引用，如果引用的文件不存在，则删除该行
+          grep -rE "source \".*\"" . | while read -r line; do
+              file_path=$(echo "$line" | cut -d: -f1)
+              target_ref=$(echo "$line" | sed -E 's/.*source "(.*)"/\1/')
+              if [ ! -f "$target_ref" ]; then
+                  echo "Removing missing ref: $target_ref in $file_path"
+                  sed -i "\|source \"$target_ref\"|d" "$file_path"
+              fi
+          done
 
-          # B. 对齐内核主版本号 (根据截图: 5.10.117)
+          # 对齐内核主版本号 (5.10.117)
           sed -i 's/SUBLEVEL =.*/SUBLEVEL = 117/' Makefile
           
-          # C. 修改并应用你的 config 后缀 (-android12-9-g287b9af3dd02)
+          # 对齐内核后缀
           sed -i '/CONFIG_LOCALVERSION=/d' ../config
           echo 'CONFIG_LOCALVERSION="-android12-9-g287b9af3dd02"' >> ../config
           cp ../config .config
           
-          # D. 使用 olddefconfig 强制应用配置并忽略缺失项
+          # 应用配置
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 olddefconfig
-          
-          # E. 准备模块编译环境
+          # 准备环境
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 modules_prepare
 
       - name: Build Module
         run: |
           cd driver
-          # 编译驱动，指定 KSRC 为刚才准备好的内核源码目录
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
                KSRC=$GITHUB_WORKSPACE/kernel \
                USER_MODULE_NAME=8812au -j$(nproc)
@@ -58,5 +59,5 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 8812au-ko-package
+          name: 8812au-ko-final
           path: driver/8812au.ko
