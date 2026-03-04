@@ -1,5 +1,7 @@
-name: Build RTL8812AU for OnePlus Ace 2
-on: [push, workflow_dispatch]
+name: Build RTL8812AU Manual
+
+on:
+  workflow_dispatch: # 开启手动运行功能
 
 jobs:
   build:
@@ -7,22 +9,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Setup Toolchain (AArch64 GCC/Clang)
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential libelf-dev libssl-dev flex bison
-
-      - name: Setup Toolchain (Android Clang)
-        run: |
-          # 下载预编译的 Android Clang 编译器，对齐 AOSP 编译环境
-          mkdir -p $GITHUB_WORKSPACE/toolchain
-          cd $GITHUB_WORKSPACE/toolchain
-          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r450784d.tar.gz
-          tar -xf clang-r450784d.tar.gz
+          sudo apt-get install -y gcc-aarch64-linux-gnu clang lld llvm bc build-essential libelf-dev libssl-dev flex bison
+          # 验证编译器
+          aarch64-linux-gnu-gcc --version
+          clang --version
 
       - name: Fetch Kernel Source & Driver
         run: |
-          # 拉取一加 Ace 2 (sm8475) 源码
+          # 拉取一加 Ace 2 内核源码 (使用深度为 1 节省时间)
           git clone --depth 1 https://github.com/OnePlusOSS/android_kernel_oneplus_sm8475.git -b oneplus/sm8475_u_14.0.0 kernel
           # 拉取网卡驱动源码
           git clone --depth 1 https://github.com/aircrack-ng/rtl8812au.git driver
@@ -30,22 +27,24 @@ jobs:
       - name: Align Version & Config
         run: |
           cd kernel
-          # 关键：根据你的 uname -a 强制对齐版本后缀
-          # 你的版本是 5.10.117-android12-9-g287b9af3dd02
+          # 1. 强制对齐内核主版本号
           sed -i 's/SUBLEVEL =.*/SUBLEVEL = 117/' Makefile
-          # 这里填入 "-" 后面剩余的字符串
-          echo "CONFIG_LOCALVERSION=\"-android12-9-g287b9af3dd02\"" >> ../config
-          cp ../config .config
           
-          # 准备内核开发环境
-          export PATH=$GITHUB_WORKSPACE/toolchain/bin:$PATH
+          # 2. 对齐内核后缀 (根据你的截图: -android12-9-g287b9af3dd02)
+          # 注意：我们需要处理 config 文件中的 LOCALVERSION
+          sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-android12-9-g287b9af3dd02"/' ../config
+          if ! grep -q "CONFIG_LOCALVERSION=" ../config; then
+            echo 'CONFIG_LOCALVERSION="-android12-9-g287b9af3dd02"' >> ../config
+          fi
+          
+          # 3. 复制并准备环境
+          cp ../config .config
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 modules_prepare
 
       - name: Build Module
         run: |
-          export PATH=$GITHUB_WORKSPACE/toolchain/bin:$PATH
           cd driver
-          # 编译驱动，指定内核源码路径
+          # 4. 编译驱动，链接到内核源码目录
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
                KSRC=$GITHUB_WORKSPACE/kernel \
                USER_MODULE_NAME=8812au -j$(nproc)
@@ -53,5 +52,5 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 8812au-ko
+          name: 8812au-ko-package
           path: driver/8812au.ko
