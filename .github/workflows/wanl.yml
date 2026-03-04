@@ -19,10 +19,10 @@ jobs:
           git clone --depth 1 https://github.com/OnePlusOSS/android_kernel_oneplus_sm8475.git kernel
           git clone --depth 1 https://github.com/aircrack-ng/rtl8812au.git driver
 
-      - name: Deep Kernel Surgery
+      - name: Nuclear Patch & System Fix
         run: |
           cd kernel
-          # 1. 修复 Kconfig
+          # 1. 修复 Kconfig 引用
           grep -rE "source \".*\"" . | while read -r line; do
               file_path=$(echo "$line" | cut -d: -f1)
               target_ref=$(echo "$line" | sed -E 's/.*source "(.*)"/\1/')
@@ -31,18 +31,17 @@ jobs:
               fi
           done
 
-          # 2. 版本号与架构强制声明
-          sed -i '2iARCH := arm64\nSUBLEVEL := 117' Makefile
+          # 2. 版本号与架构锁定
+          sed -i 's/SUBLEVEL =.*/SUBLEVEL = 117/' Makefile
           
-          # 3. 核心修复：实施“空城计”
-          # 既然它报找不到 whitelist 文件，我们就把那个绝对路径直接改成我们能控制的本地空文件
+          # 3. 核心修复：直接在最基础的头文件定义 atomic64_t
+          # 这能防止 scripts/mod 和 kernel/bounds.c 因为不认识这个类型而崩溃
+          sed -i '/typedef __kernel_uid32_t/a typedef long long atomic64_t;' include/uapi/asm-generic/types.h
+
+          # 4. 实施“空城计”解决白名单报错
           WHITELIST_MOCK="$GITHUB_WORKSPACE/kernel/abi_symbollist.raw"
           touch "$WHITELIST_MOCK"
-          find . -type f -name "Makefile*" -exec sed -i "s|$(grep -o '/work/personal_build_pvc/.*raw' -r . | head -n 1)|$WHITELIST_MOCK|g" {} + || true
-
-          # 4. 彻底禁用 GKI 校验脚本
-          echo "exit 0" > scripts/abi_whitelist.sh || true
-          chmod +x scripts/abi_whitelist.sh || true
+          find . -type f -name "Makefile*" -exec sed -i "s|/work/personal_build_pvc/[^ ']*raw|$WHITELIST_MOCK|g" {} + || true
 
           # 5. 配置对齐
           cp ../config .config
@@ -54,16 +53,18 @@ jobs:
       - name: Final Prepare
         run: |
           cd kernel
-          # 屏蔽所有警告，强制通过准备阶段
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-w" prepare0 -j$(nproc)
+          # 使用 -Datomic64_t=long 确保编译器在所有阶段都认识它
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+               KCFLAGS="-w -Datomic64_t='long long'" \
+               prepare0 -j$(nproc)
 
       - name: Build Driver Module
         run: |
           cd driver
-          # 此时内核头文件已就绪，开始编译驱动
+          # 此时内核环境已就绪，开始编译驱动
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                KSRC=$GITHUB_WORKSPACE/kernel \
-               KCFLAGS="-w" \
+               KCFLAGS="-w -Datomic64_t='long long'" \
                USER_MODULE_NAME=8812au -j$(nproc)
 
       - name: Upload Artifact
