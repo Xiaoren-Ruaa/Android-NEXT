@@ -19,10 +19,10 @@ jobs:
           git clone --depth 1 https://github.com/OnePlusOSS/android_kernel_oneplus_sm8475.git kernel
           git clone --depth 1 https://github.com/aircrack-ng/rtl8812au.git driver
 
-      - name: Patch Kconfig & Version
+      - name: Nuclear Patch & Version Align
         run: |
           cd kernel
-          # 1. 递归修复缺失的 Kconfig 引用
+          # 1. 递归修复 Kconfig 引用
           grep -rE "source \".*\"" . | while read -r line; do
               file_path=$(echo "$line" | cut -d: -f1)
               target_ref=$(echo "$line" | sed -E 's/.*source "(.*)"/\1/')
@@ -31,31 +31,31 @@ jobs:
               fi
           done
 
-          # 2. 版本号与配置对齐
+          # 2. 版本号对齐 (5.10.117-android12-9-g287b9af3dd02)
           sed -i 's/SUBLEVEL =.*/SUBLEVEL = 117/' Makefile
           sed -i '/CONFIG_LOCALVERSION=/d' ../config
           echo 'CONFIG_LOCALVERSION="-android12-9-g287b9af3dd02"' >> ../config
           
-          # 3. 清理厂商特有的私有检查路径
+          # 3. 彻底禁用 GKI/ABI 检查
           sed -i 's/CONFIG_UNUSED_KSYMS_WHITELIST=.*/CONFIG_UNUSED_KSYMS_WHITELIST=""/' ../config
           sed -i 's/CONFIG_ABI_WHITELIST=.*/# CONFIG_ABI_WHITELIST is not set/' ../config
           
           cp ../config .config
+          # 使用 olddefconfig 并禁用交互
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 olddefconfig
 
-      - name: Quick Prepare (Skip Headers)
+      - name: Force Prepare (Bypass HDRINST)
         run: |
           cd kernel
-          # 关键点：我们只执行 scripts prepare，不去触碰 headers_install 相关的逻辑
-          # 加入参数禁用部分强制检查
+          # 仅生成核心偏移量文件，这是编译 .ko 唯一必须的
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
-               KCFLAGS="-Wno-error -Wno-implicit-function-declaration" \
-               scripts prepare -j$(nproc)
+               KCFLAGS="-Wno-error" \
+               prepare0 -j$(nproc)
 
       - name: Build Driver Module
         run: |
           cd driver
-          # 最终编译驱动模块，链接到刚才准备好的内核源码
+          # 直接针对驱动目录进行编译，跳过内核层面的 modules 检查
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
                KSRC=$GITHUB_WORKSPACE/kernel \
                KCFLAGS="-Wno-error" \
