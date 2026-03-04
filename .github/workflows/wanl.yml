@@ -1,4 +1,4 @@
-name: Build RTL8812AU Absolute Zero
+name: Build RTL8812AU Final Protocol
 
 on:
   workflow_dispatch: 
@@ -19,18 +19,20 @@ jobs:
           git clone --depth 1 https://github.com/OnePlusOSS/android_kernel_oneplus_sm8475.git kernel
           git clone --depth 1 https://github.com/aircrack-ng/rtl8812au.git driver
 
-      - name: Environment Forgery (The Fake Path)
+      - name: Path & Type Forgery (Double Strike)
         run: |
-          # 继续维持那个骗过系统检查的伪造路径
+          # 1. 维持环境欺骗 (白名单修复)
           FAKE_PATH="/work/personal_build_pvc/1c4214df-492a-4e08-94ab-cd8066d8e2f0/basepvc-dis-jenkins-10.27.103.189kuqrXsvd/workspace/Personal_Debug_Release/personal_version_build_poject/code/source/vnd/kernel_platform/out/gki_kernel/common"
           sudo mkdir -p "$FAKE_PATH"
           sudo touch "$FAKE_PATH/abi_symbollist.raw"
           sudo chmod -R 777 /work/
 
-      - name: Kernel Surgery (Conditional Patch)
-        run: |
           cd kernel
-          # 1. 修复 Kconfig
+          # 2. 核心大杀器：创建一个强制包含的补丁文件
+          # 这样可以完美解决 atomic64_t 和 atomic_t 的成员报错
+          echo -e '#ifndef __PATCH_H__\n#define __PATCH_H__\ntypedef struct { int counter; } atomic_t;\ntypedef struct { long counter; } atomic64_t;\n#endif' > include/linux/force_patch.h
+
+          # 3. 修复 Kconfig
           grep -rE "source \".*\"" . | while read -r line; do
               file_path=$(echo "$line" | cut -d: -f1)
               target_ref=$(echo "$line" | sed -E 's/.*source "(.*)"/\1/')
@@ -39,15 +41,12 @@ jobs:
               fi
           done
 
-          # 2. 核心修正：使用 #ifndef 保护，防止“重复定义”报错 (针对 1000004092 截图)
-          # 我们把注入位置改到 types.h 的开头，并加上类型检查锁
-          sed -i '1i#ifndef __ATOMIC_TYPES_PATCH__\n#define __ATOMIC_TYPES_PATCH__\ntypedef struct { int counter; } atomic_t_patch;\ntypedef struct { long counter; } atomic64_t_patch;\n#endif' include/linux/types.h
-          
-          # 3. 锁定版本与架构
+          # 4. 锁定版本与架构，并修改 Makefile 强制包含我们的补丁
           sed -i '2iARCH := arm64\nSUBLEVEL := 117' Makefile
+          sed -i '/^KBUILD_CFLAGS/ s/$/ -include $(srctree)\/include\/linux\/force_patch.h/' Makefile
+
           cp ../config .config
-          
-          # 彻底禁用导致 GKI 路径报错的开关
+          # 强制关闭干扰项
           sed -i 's/CONFIG_UNUSED_KSYMS_WHITELIST=.*/CONFIG_UNUSED_KSYMS_WHITELIST=""/' .config
           sed -i 's/CONFIG_ABI_WHITELIST=.*/# CONFIG_ABI_WHITELIST is not set/' .config
           
@@ -56,19 +55,20 @@ jobs:
       - name: Final Prepare
         run: |
           cd kernel
-          # 运行准备命令。由于我们不再强行 typedef atomic_t，重复定义错误将消失
+          # 这一次编译器在跑 bounds.c 之前会强制加载 force_patch.h
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-w" prepare0 -j$(nproc)
 
       - name: Build Driver Module
         run: |
           cd driver
-          # 链接到内核源码编译驱动
+          # 驱动编译阶段
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                KSRC=$GITHUB_WORKSPACE/kernel \
-               KCFLAGS="-w" USER_MODULE_NAME=8812au -j$(nproc)
+               KCFLAGS="-w -include $GITHUB_WORKSPACE/kernel/include/linux/force_patch.h" \
+               USER_MODULE_NAME=8812au -j$(nproc)
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 8812au-ko-AbsoluteZero
+          name: 8812au-ko-Final
           path: driver/8812au.ko
