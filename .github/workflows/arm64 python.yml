@@ -1,0 +1,149 @@
+name: Build static Python for Android (arm64)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:        # 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y make wget
+
+      - name: Download Android NDK
+        run: |
+          wget https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
+          unzip android-ndk-r25c-linux.zip
+          echo "NDK_PATH=${PWD}/android-ndk-r25c" >> $GITHUB_ENV
+
+      - name: Set up cross-compilation environment
+        run: |
+          export TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
+          export TARGET=aarch64-linux-android
+          export API=21
+
+          echo "AR=$TOOLCHAIN/bin/llvm-ar" >> $GITHUB_ENV
+          echo "CC=$TOOLCHAIN/bin/$TARGET$API-clang" >> $GITHUB_ENV
+          echo "CXX=$TOOLCHAIN/bin/$TARGET$API-clang++" >> $GITHUB_ENV
+          echo "AS=$CC" >> $GITHUB_ENV
+          echo "LD=$TOOLCHAIN/bin/ld" >> $GITHUB_ENV
+          echo "RANLIB=$TOOLCHAIN/bin/llvm-ranlib" >> $GITHUB_ENV
+          echo "STRIP=$TOOLCHAIN/bin/llvm-strip" >> $GITHUB_ENV
+          echo "TOOLCHAIN=$TOOLCHAIN" >> $GITHUB_ENV
+          echo "TARGET=$TARGET" >> $GITHUB_ENV
+          echo "API=$API" >> $GITHUB_ENV
+
+      - name: Build OpenSSL (static)
+        run: |
+          wget https://www.openssl.org/source/openssl-3.0.13.tar.gz
+          tar xf openssl-3.0.13.tar.gz
+          cd openssl-3.0.13
+          export PATH=$TOOLCHAIN/bin:$PATH
+          ./Configure android-arm64 -D__ANDROID_API__=$API --prefix=$PWD/install no-shared
+          make -j$(nproc)
+          make install_sw
+          echo "OPENSSL_DIR=$PWD/install" >> $GITHUB_ENV
+          cd ..
+
+      - name: Build libffi (static)
+        run: |
+          wget ftp://sourceware.org/pub/libffi/libffi-3.4.4.tar.gz
+          tar xf libffi-3.4.4.tar.gz
+          cd libffi-3.4.4
+          ./configure --host=$TARGET --prefix=$PWD/install --disable-shared --enable-static
+          make -j$(nproc)
+          make install
+          echo "LIBFFI_DIR=$PWD/install" >> $GITHUB_ENV
+          cd ..
+
+      - name: Build zlib (static)
+        run: |
+          wget https://zlib.net/fossils/zlib-1.3.1.tar.gz
+          tar xf zlib-1.3.1.tar.gz
+          cd zlib-1.3.1
+          export CHOST=$TARGET
+          ./configure --prefix=$PWD/install --static
+          make -j$(nproc)
+          make install
+          echo "ZLIB_DIR=$PWD/install" >> $GITHUB_ENV
+          cd ..
+
+      - name: Download Python source
+        run: |
+          wget https://www.python.org/ftp/python/3.11.6/Python-3.11.6.tar.xz
+          tar xf Python-3.11.6.tar.xz
+
+      - name: Configure and compile Python (static)
+        run: |
+          cd Python-3.11.6
+          export PATH=$TOOLCHAIN/bin:$PATH
+
+          # config.site 预先定义检测结果，避免交叉编译时卡住
+          cat > config.site << 'EOF'
+          ac_cv_file__dev_ptc=no
+          ac_cv_file__dev_ptmx=no
+          ac_cv_have_long_long_format=yes
+          ac_cv_func_bind_textdomain_codeset=yes
+          ac_cv_func_faccessat=yes
+          ac_cv_func_fdatasync=yes
+          ac_cv_func_fsync=yes
+          ac_cv_func_futimens=yes
+          ac_cv_func_futimes=yes
+          ac_cv_func_futimesat=yes
+          ac_cv_func_utimensat=yes
+          ac_cv_func_utimes=yes
+          ac_cv_func_lchmod=yes
+          ac_cv_func_lchown=yes
+          ac_cv_func_linkat=yes
+          ac_cv_func_mkdirat=yes
+          ac_cv_func_mkfifoat=yes
+          ac_cv_func_mknodat=yes
+          ac_cv_func_openat=yes
+          ac_cv_func_readlinkat=yes
+          ac_cv_func_renameat=yes
+          ac_cv_func_symlinkat=yes
+          ac_cv_func_unlinkat=yes
+          ac_cv_func_dup3=yes
+          ac_cv_func_pipe2=yes
+          ac_cv_func_getentropy=yes
+          ac_cv_func_getrandom=yes
+          EOF
+
+          export CPPFLAGS="-I$ZLIB_DIR/include -I$LIBFFI_DIR/include -I$OPENSSL_DIR/include"
+          export LDFLAGS="-L$ZLIB_DIR/lib -L$LIBFFI_DIR/lib -L$OPENSSL_DIR/lib -Wl,-Bstatic -lz -lffi -lssl -lcrypto -Wl,-Bdynamic"
+          export CONFIG_SITE=$PWD/config.site
+
+          ./configure \
+            --host=$TARGET \
+            --build=x86_64-linux-gnu \
+            --target=$TARGET \
+            --prefix=$PWD/install \
+            --disable-ipv6 \
+            --enable-optimizations \
+            --with-openssl=$OPENSSL_DIR \
+            --with-openssl-rpath=no \
+            --with-system-ffi=no \
+            --with-system-expat=no \
+            --with-ensurepip=yes \
+            --disable-shared   # 关键：静态链接 libpython，所有模块内置
+
+          make -j$(nproc)
+          make install
+
+      - name: Strip and package final binary
+        run: |
+          cd Python-3.11.6/install/bin
+          $STRIP python3
+          # 打包成 tar.gz，内含一个独立的 python3 文件
+          tar -czf $GITHUB_WORKSPACE/python3-android-static.tar.gz python3
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python3-android-static
+          path: python3-android-static.tar.gz
