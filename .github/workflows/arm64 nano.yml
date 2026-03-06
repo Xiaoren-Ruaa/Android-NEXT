@@ -131,17 +131,18 @@ jobs:
           SRC_DIR=$(tar tf nano-*.tar.xz | head -1 | cut -d/ -f1)
           echo "NANO_SRC_DIR=$PWD/$SRC_DIR" >> $GITHUB_ENV
 
-      - name: Configure nano (without linking flags)
+      - name: Configure nano (with ncursesw paths)
         run: |
           cd $NANO_SRC_DIR
-          # 配置阶段只传递 CFLAGS（头文件路径），不传递 LDFLAGS 和 LIBS
-          export CFLAGS="-fPIE -O2 -I$NCURSES_DIR/include"
-          # 不要设置 LDFLAGS 和 LIBS，以免干扰基本编译器测试
+          export CPPFLAGS="-I$NCURSES_DIR/include -I$NCURSES_DIR/include/ncursesw"
+          export LDFLAGS="-L$NCURSES_DIR/lib"
+          export CFLAGS="-fPIE -O2"
           ./configure \
             --host=$TARGET \
             --build=x86_64-linux-gnu \
             --target=$TARGET \
             --prefix=$PWD/install \
+            --with-ncursesw \
             --enable-utf8 \
             --disable-nls \
             --disable-speller \
@@ -150,8 +151,7 @@ jobs:
       - name: Compile nano (static)
         run: |
           cd $NANO_SRC_DIR
-          # 编译时添加静态链接标志，链接 ncurses 库
-          make -j$(nproc) LDFLAGS="-L$NCURSES_DIR/lib -pie -static" LIBS="-lncursesw -ltinfo"
+          make -j$(nproc) LDFLAGS="$LDFLAGS -pie -static" LIBS="-lncursesw -ltinfo"
           make install
 
       - name: Strip and package
