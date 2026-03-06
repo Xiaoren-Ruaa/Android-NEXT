@@ -32,7 +32,7 @@ jobs:
           echo "STRIP=$BIN_DIR/llvm-strip" >> $GITHUB_ENV
           echo "TARGET=$TARGET" >> $GITHUB_ENV
 
-      # --- 1. 获取最新版本号 (自动检测) ---
+      # --- 获取最新版本（带后备方案）---
       - name: Get latest ncurses version
         id: ncurses
         run: |
@@ -42,20 +42,23 @@ jobs:
       - name: Get latest Vim version
         id: vim
         run: |
-          # 从 Vim 官方 GitHub 获取最新发布的标签名 (例如 v9.1.1234)
-          LATEST_TAG=$(curl -s https://api.github.com/repos/vim/vim/releases/latest | grep -oP '"tag_name": "\K[^"]+')
-          # 去掉版本号前的 'v' 字符，得到类似 9.1.1234 的格式
+          # 尝试从 GitHub API 获取最新标签
+          LATEST_TAG=$(curl -s https://api.github.com/repos/vim/vim/releases/latest | grep -oP '"tag_name": "\K[^"]+' || true)
+          # 如果失败，使用一个较新的稳定版作为后备（可定期更新此版本）
+          if [ -z "$LATEST_TAG" ]; then
+            echo "GitHub API failed, using fallback version v9.1.0"
+            LATEST_TAG="v9.1.0"
+          fi
           VERSION=${LATEST_TAG#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
 
-      # --- 2. 编译依赖库 ncurses (静态) ---
+      # --- 编译 ncurses（静态）---
       - name: Download and build ncurses (static)
         run: |
           wget ftp://ftp.gnu.org/gnu/ncurses/ncurses-${{ steps.ncurses.outputs.version }}.tar.gz
           tar xf ncurses-*.tar.gz
           cd ncurses-*
-          # 配置和编译 ncurses，仅生成静态库
           ./configure --host=$TARGET --prefix=$PWD/install \
                       --without-shared --with-normal \
                       --without-debug --without-ada \
@@ -65,27 +68,25 @@ jobs:
           make install.libs
           echo "NCURSES_DIR=$PWD/install" >> $GITHUB_ENV
 
-      # --- 3. 下载 terminfo (从 Termux 获取) ---
+      # --- 下载预编译 terminfo（来自 Termux）---
       - name: Download prebuilt terminfo from Termux
         run: |
-          # 下载 Termux 的 ncurses 包（里面包含完整的 terminfo 数据库）
           wget https://packages.termux.org/apt/termux-main/pool/main/n/ncurses/ncurses_6.4-1_aarch64.deb
           ar x ncurses_*.deb
           tar xf data.tar.xz
-          # terminfo 位于解压根目录的 ./data/data/com.termux/files/usr/share/terminfo
           mkdir -p terminfo
           cp -r ./data/data/com.termux/files/usr/share/terminfo/* terminfo/
 
-      # --- 4. 下载并编译 Vim (静态) ---
+      # --- 下载 Vim 源码（使用检测到的标签）---
       - name: Download Vim source
         run: |
           git clone --branch ${{ steps.vim.outputs.tag }} --depth 1 https://github.com/vim/vim.git
           echo "VIM_SRC_DIR=$PWD/vim" >> $GITHUB_ENV
 
+      # --- 配置 Vim（最小化静态编译）---
       - name: Configure Vim (minimal static)
         run: |
           cd $VIM_SRC_DIR/src
-          # 关键配置选项：最小化特性，静态链接，UTF-8支持
           export CPPFLAGS="-I$NCURSES_DIR/include -I$NCURSES_DIR/include/ncursesw"
           export LDFLAGS="-L$NCURSES_DIR/lib"
           export CFLAGS="-fPIE -O2"
@@ -106,14 +107,14 @@ jobs:
             --prefix=$PWD/install \
             ac_cv_sizeof_int=4
 
+      # --- 编译 Vim（静态链接）---
       - name: Compile Vim (static)
         run: |
           cd $VIM_SRC_DIR/src
-          # 编译时强制静态链接，并链接 ncursesw
           make -j$(nproc) LDFLAGS="$LDFLAGS -static -pie" LIBS="-lncursesw"
           make install
 
-      # --- 5. 打包最终产物 ---
+      # --- 打包产物 ---
       - name: Package final artifact
         run: |
           mkdir -p output
@@ -121,7 +122,6 @@ jobs:
           cp -r terminfo output/
           cd output
           $STRIP vim
-          # 验证静态链接
           echo "=== Checking linked libraries (should only show system libs) ==="
           readelf -d vim | grep NEEDED || true
           tar -czf $GITHUB_WORKSPACE/vim-android-static.tar.gz *
