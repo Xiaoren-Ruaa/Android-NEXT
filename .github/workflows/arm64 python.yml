@@ -37,11 +37,15 @@ jobs:
           echo "TOOLCHAIN=$TOOLCHAIN" >> $GITHUB_ENV
           echo "TARGET=$TARGET" >> $GITHUB_ENV
           echo "API=$API" >> $GITHUB_ENV
+          # 将工具链路径加入 PATH（对后续步骤生效）
+          echo "$TOOLCHAIN/bin" >> $GITHUB_PATH
 
       - name: Build OpenSSL (static)
         run: |
+          # 确保 PATH 包含工具链（虽然 GITHUB_PATH 已添加，但当前步骤仍需手动导出）
           export PATH=$TOOLCHAIN/bin:$PATH
-          export ANDROID_NDK=$NDK_PATH
+          # OpenSSL 3.0 需要 ANDROID_NDK_HOME 环境变量
+          export ANDROID_NDK_HOME=$NDK_PATH
           wget https://www.openssl.org/source/openssl-3.0.13.tar.gz
           tar xf openssl-3.0.13.tar.gz
           cd openssl-3.0.13
