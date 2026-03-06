@@ -16,12 +16,12 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          # 修复 Image 3：补齐构建必须的 autopoint 和 gettext
+          # 修复 Image 3：补齐构建必须的组件
           sudo apt-get install -y autoconf automake libtool pkg-config bison flex wget tar file xz-utils build-essential gettext autopoint
 
       - name: Setup Bootlin Toolchain
         run: |
-          # 修复 Image 2：换用最稳定的 Bootlin 官方源
+          # 修复 Image 2：换用最稳定的官方源
           wget https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.05-1.tar.xz
           tar -xf aarch64--musl--stable-2024.05-1.tar.xz
           echo "$(pwd)/aarch64--musl--stable-2024.05-1/bin" >> $GITHUB_PATH
@@ -30,9 +30,9 @@ jobs:
         run: |
           ./autogen.sh
           
-          # 修复 Image 4/5 的核心参数：
-          # 1. -fno-stack-protector: 解决 __stack_chk_guard 重定位报错
-          # 2. -no-pie: 解决 stdout 等全局符号的链接冲突，确保真静态
+          # 修复 Image 4/5/7 的核心：
+          # 1. -fno-stack-protector: 解决重定位报错
+          # 2. -no-pie: 确保生成真正的、不需要解释器的静态文件
           export CC="aarch64-linux-gcc"
           export CFLAGS="-Os -static -fno-stack-protector -no-pie"
           export LDFLAGS="-static -no-pie"
@@ -53,13 +53,13 @@ jobs:
                       --disable-nls \
                       --disable-bash-completion
           
-          # 编译阶段强制注入参数
+          # 强制注入参数进行编译
           make fstrim CFLAGS="-Os -static -fno-stack-protector" LDFLAGS="-static -no-pie"
           
-          # 裁剪二进制文件减小体积
+          # 裁剪文件
           aarch64-linux-strip --strip-all fstrim
           
-          # 验证结果
+          # 关键验证环节
           echo "Build Finished! Verification:"
           file fstrim
           # 如果 readelf 没有任何输出，说明这才是真正的静态二进制文件
