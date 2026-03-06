@@ -81,6 +81,16 @@ jobs:
           export LDFLAGS="-L$NCURSES_DIR/lib"
           export CFLAGS="-fPIE -O2"
 
+          # 设置交叉编译必需的缓存变量
+          export vim_cv_toupper_broken=no
+          export vim_cv_memmove_handles_overlap=yes
+          export vim_cv_stat_ignores_slash=no
+          export vim_cv_terminfo=yes
+          export vim_cv_tgetent=non-zero
+          export vim_cv_getcwd_broken=no
+          export vim_cv_ospeed_is_int=yes
+          export ac_cv_sizeof_int=4
+
           ./configure \
             --host=$TARGET \
             --with-features=tiny \
@@ -94,8 +104,7 @@ jobs:
             --disable-libsodium \
             --enable-multibyte \
             --with-tlib=ncursesw \
-            --prefix=$PWD/install \
-            ac_cv_sizeof_int=4
+            --prefix=$PWD/install
 
       # --- 编译 Vim（静态链接）---
       - name: Compile Vim (static)
