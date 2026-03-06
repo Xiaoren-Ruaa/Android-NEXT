@@ -1,4 +1,4 @@
-name: Build static nano for Android (arm64) - latest version
+name: Build static nano for Android (arm64)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Install system dependencies
+      - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y make wget curl
@@ -21,212 +21,73 @@ jobs:
 
       - name: Set up NDK environment
         run: |
-          export TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
-          export TARGET=aarch64-linux-android
-          export API=21
-          export BIN_DIR=$TOOLCHAIN/bin
-
+          TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
+          TARGET=aarch64-linux-android
+          API=21
+          BIN_DIR=$TOOLCHAIN/bin
           echo "$BIN_DIR" >> $GITHUB_PATH
-
-          echo "TARGET=$TARGET" >> $GITHUB_ENV
-          echo "API=$API" >> $GITHUB_ENV
           echo "CC=$BIN_DIR/clang -target $TARGET$API" >> $GITHUB_ENV
           echo "CXX=$BIN_DIR/clang++ -target $TARGET$API" >> $GITHUB_ENV
           echo "AR=$BIN_DIR/llvm-ar" >> $GITHUB_ENV
-          echo "RANLIB=$BIN_DIR/llvm-ranlib" >> $GITHUB_ENV
           echo "STRIP=$BIN_DIR/llvm-strip" >> $GITHUB_ENV
-
-      - name: Test compiler and linker
-        run: |
-          echo "=== Testing compiler and linker ==="
-          cat > test.c << 'EOF'
-          #include <stdio.h>
-          int main() {
-              printf("Hello\n");
-              return 0;
-          }
-          EOF
-
-          echo "--- Compiling to object file ---"
-          $CC -c test.c -o test.o 2>&1 | tee compile.log
-          if [ ! -f test.o ]; then
-            echo "Compilation failed. Full output:"
-            cat compile.log
-            exit 1
-          fi
-          echo "Compilation successful."
-
-          echo "--- Linking object file ---"
-          $CC test.o -o test 2>&1 | tee link.log
-          if [ ! -f test ]; then
-            echo "Linking failed. Full output:"
-            cat link.log
-            exit 1
-          fi
-          echo "Linking successful."
-          echo "Compiler and linker test passed."
+          echo "TARGET=$TARGET" >> $GITHUB_ENV
 
       - name: Get latest ncurses version
         id: ncurses
         run: |
           LATEST=$(curl -s ftp://ftp.gnu.org/gnu/ncurses/ | grep -oP 'ncurses-\K[0-9]+\.[0-9]+' | sort -V | tail -n1)
-          if [ -z "$LATEST" ]; then
-            LATEST="6.5"
-          fi
-          echo "version=$LATEST"
-          echo "version=$LATEST" >> $GITHUB_OUTPUT
-          echo "url=ftp://ftp.gnu.org/gnu/ncurses/ncurses-$LATEST.tar.gz" >> $GITHUB_OUTPUT
+          echo "version=${LATEST:-6.5}" >> $GITHUB_OUTPUT
+
+      - name: Download and build ncurses (static)
+        run: |
+          wget ftp://ftp.gnu.org/gnu/ncurses/ncurses-${{ steps.ncurses.outputs.version }}.tar.gz
+          tar xf ncurses-*.tar.gz
+          cd ncurses-*
+          ./configure --host=$TARGET --prefix=$PWD/install --without-shared --with-normal \
+                      --without-debug --without-ada --enable-widec --enable-termcap \
+                      CFLAGS="-fPIE"
+          make -j$(nproc)
+          make install.libs
+          echo "NCURSES_DIR=$PWD/install" >> $GITHUB_ENV
 
       - name: Get latest nano version
         id: nano
         run: |
-          HTML=$(curl -s https://www.nano-editor.org/download.php)
-          LATEST=$(echo "$HTML" | grep -oP 'nano-\K[0-9]+\.[0-9]+(?=\.tar\.xz)' | head -1)
-          if [ -z "$LATEST" ]; then
-            MAJOR=$(curl -s https://www.nano-editor.org/dist/ | grep -oP 'v\K[0-9]+' | sort -n | tail -1)
-            if [ -n "$MAJOR" ]; then
-              LATEST=$(curl -s https://www.nano-editor.org/dist/v$MAJOR/ | grep -oP "nano-$MAJOR\.[0-9]+\.tar\.xz" | grep -oP "nano-\K[0-9]+\.[0-9]+" | sort -V | tail -1)
-            fi
-          fi
-          if [ -z "$LATEST" ]; then
-            LATEST="8.3"
-          fi
-          echo "version=$LATEST"
-          echo "version=$LATEST" >> $GITHUB_OUTPUT
-          echo "url=https://www.nano-editor.org/dist/v${LATEST%%.*}/nano-$LATEST.tar.xz" >> $GITHUB_OUTPUT
+          LATEST=$(curl -s https://www.nano-editor.org/download.php | grep -oP 'nano-\K[0-9]+\.[0-9]+(?=\.tar\.xz)' | head -1)
+          echo "version=${LATEST:-8.3}" >> $GITHUB_OUTPUT
 
-      - name: Download and extract ncurses
+      - name: Download and build nano (static)
         run: |
-          wget "${{ steps.ncurses.outputs.url }}"
-          tar xf ncurses-*.tar.gz
-          SRC_DIR=$(tar tf ncurses-*.tar.gz | head -1 | cut -d/ -f1)
-          echo "NCURSES_SRC_DIR=$PWD/$SRC_DIR" >> $GITHUB_ENV
-
-      - name: Build ncurses (static)
-        run: |
-          cd $NCURSES_SRC_DIR
-          make distclean || true
-          ./configure \
-            --host=$TARGET \
-            --prefix=$PWD/install \
-            --without-shared \
-            --with-normal \
-            --without-debug \
-            --without-ada \
-            --enable-widec \
-            --enable-termcap \
-            --with-terminfo-dirs=/system/etc/terminfo:/data/misc/terminfo \
-            --with-default-terminfo-dir=/system/etc/terminfo \
-            CFLAGS="-fPIE"
-          make -j$(nproc)
-          make install.libs install.data
-          echo "NCURSES_DIR=$PWD/install" >> $GITHUB_ENV
-
-      - name: Debug and detect ncurses library
-        run: |
-          echo "=== NCURSES_DIR/lib contents ==="
-          ls -la $NCURSES_DIR/lib
-          echo "=== Searching for ncurses static library ==="
-          if [ -f "$NCURSES_DIR/lib/libncursesw.a" ]; then
-            echo "Found libncursesw.a"
-            echo "NCURSES_LIB_NAME=ncursesw" >> $GITHUB_ENV
-          elif [ -f "$NCURSES_DIR/lib/libncurses.a" ]; then
-            echo "Found libncurses.a"
-            echo "NCURSES_LIB_NAME=ncurses" >> $GITHUB_ENV
-          else
-            echo "ERROR: No ncurses static library found!"
-            exit 1
-          fi
-
-      - name: Locate terminfo directory (enhanced)
-        id: locate_terminfo
-        run: |
-          echo "=== Searching for terminfo directory ==="
-          TERMINFO_PATH=""
-
-          # 尝试从 ncurses 源码的 misc/terminfo 获取（编译生成的二进制数据库）
-          if [ -d "$NCURSES_SRC_DIR/misc/terminfo" ]; then
-            TERMINFO_PATH="$NCURSES_SRC_DIR/misc/terminfo"
-            echo "Found terminfo in source misc: $TERMINFO_PATH"
-          # 尝试从安装目录的 share/terminfo 获取
-          elif [ -d "$NCURSES_DIR/share/terminfo" ]; then
-            TERMINFO_PATH="$NCURSES_DIR/share/terminfo"
-            echo "Found terminfo in install share: $TERMINFO_PATH"
-          # 尝试从源码的 misc 目录直接查找（可能直接包含 terminfo 文件）
-          elif [ -d "$NCURSES_SRC_DIR/misc" ]; then
-            # 查找任何名为 terminfo 的目录
-            TERMINFO_PATH=$(find "$NCURSES_SRC_DIR" -type d -name terminfo | head -n1)
-            if [ -n "$TERMINFO_PATH" ]; then
-              echo "Found terminfo via find in source: $TERMINFO_PATH"
-            fi
-          fi
-
-          # 最后尝试在安装目录下查找
-          if [ -z "$TERMINFO_PATH" ]; then
-            TERMINFO_PATH=$(find "$NCURSES_DIR" -type d -name terminfo | head -n1)
-            if [ -n "$TERMINFO_PATH" ]; then
-              echo "Found terminfo via find in install: $TERMINFO_PATH"
-            fi
-          fi
-
-          if [ -z "$TERMINFO_PATH" ]; then
-            echo "ERROR: Could not find terminfo directory"
-            exit 1
-          fi
-          echo "TERMINFO_PATH=$TERMINFO_PATH" >> $GITHUB_ENV
-
-      - name: Download and extract nano
-        run: |
-          wget "${{ steps.nano.outputs.url }}"
+          wget https://www.nano-editor.org/dist/v${{ steps.nano.outputs.version }}/nano-${{ steps.nano.outputs.version }}.tar.xz
           tar xf nano-*.tar.xz
-          SRC_DIR=$(tar tf nano-*.tar.xz | head -1 | cut -d/ -f1)
-          echo "NANO_SRC_DIR=$PWD/$SRC_DIR" >> $GITHUB_ENV
-
-      - name: Configure nano
-        run: |
-          cd $NANO_SRC_DIR
+          cd nano-*
           export CPPFLAGS="-I$NCURSES_DIR/include -I$NCURSES_DIR/include/ncursesw"
           export LDFLAGS="-L$NCURSES_DIR/lib"
-          export CFLAGS="-fPIE -O2"
-          ./configure \
-            --host=$TARGET \
-            --build=x86_64-linux-gnu \
-            --target=$TARGET \
-            --prefix=$PWD/install \
-            --with-ncursesw \
-            --enable-utf8 \
-            --disable-nls \
-            --disable-speller \
-            ac_cv_func_setenv=yes
-
-      - name: Compile nano (static)
-        run: |
-          cd $NANO_SRC_DIR
-          echo "=== Compiling with library: -l${NCURSES_LIB_NAME} ==="
-          echo "=== Library path: -L$NCURSES_DIR/lib ==="
-          make -j$(nproc) LDFLAGS="-L$NCURSES_DIR/lib -static -pie" LIBS="-l${NCURSES_LIB_NAME}"
+          ./configure --host=$TARGET --prefix=$PWD/install --with-ncursesw --enable-utf8
+          make -j$(nproc) LDFLAGS="$LDFLAGS -static -pie" LIBS="-lncursesw"
           make install
 
-      - name: Strip and package
+      - name: Download prebuilt terminfo from Termux
         run: |
-          cd $NANO_SRC_DIR/install/bin
+          # 下载 Termux 的 ncurses 包（包含 terminfo）
+          wget https://packages.termux.org/apt/termux-main/pool/main/n/ncurses/ncurses_6.4-1_aarch64.deb
+          ar x ncurses_*.deb
+          tar xf data.tar.xz
+          # terminfo 位于 ./data/data/com.termux/files/usr/share/terminfo
+          mkdir -p terminfo
+          cp -r ./data/data/com.termux/files/usr/share/terminfo/* terminfo/
+
+      - name: Package final artifact
+        run: |
+          mkdir -p output
+          cp nano-*/install/bin/nano output/
+          cp -r terminfo output/
+          cd output
           $STRIP nano
-          echo "=== Checking linked libraries (should only show system libs) ==="
-          readelf -d nano | grep NEEDED || true
-
-          # Create output directory
-          mkdir -p $GITHUB_WORKSPACE/nano-android/terminfo
-
-          # Copy terminfo from detected location
-          echo "Copying terminfo from $TERMINFO_PATH"
-          cp -r "$TERMINFO_PATH"/* $GITHUB_WORKSPACE/nano-android/terminfo/
-
-          cp nano $GITHUB_WORKSPACE/nano-android/
-          cd $GITHUB_WORKSPACE/nano-android
           tar -czf $GITHUB_WORKSPACE/nano-android-static.tar.gz *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nano-android-static-latest
+          name: nano-android-static
           path: nano-android-static.tar.gz
