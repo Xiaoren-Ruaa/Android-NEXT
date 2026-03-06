@@ -1,7 +1,7 @@
 name: Build Ultimate Static fstrim
 
 on:
-  workflow_dispatch: # 手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -16,30 +16,25 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          # 安装构建必需的基础工具
-          sudo apt-get install -y autoconf automake libtool pkg-config gettext bison flex wget tar file xz-utils build-essential
+          # 修复 Image 3 的关键：增加 autopoint 和 gettext
+          sudo apt-get install -y autoconf automake libtool pkg-config bison flex wget tar file xz-utils build-essential gettext autopoint
 
       - name: Setup Bootlin Toolchain
         run: |
-          # 放弃不稳定的 musl.cc，改用业界最强、极其稳定的 Bootlin 嵌入式交叉工具链
+          # 解决 Image 2 的连接超时：换用 Bootlin 官方稳定源
           wget https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.05-1.tar.xz
           tar -xf aarch64--musl--stable-2024.05-1.tar.xz
-          
-          # 将解压后的工具链 bin 目录加入全局环境变量
-          TOOLCHAIN_BIN="$(pwd)/aarch64--musl--stable-2024.05-1/bin"
-          echo "$TOOLCHAIN_BIN" >> $GITHUB_PATH
+          echo "$(pwd)/aarch64--musl--stable-2024.05-1/bin" >> $GITHUB_PATH
 
       - name: Configure and Build
         run: |
           ./autogen.sh
           
-          # Bootlin 工具链的标准前缀是 aarch64-linux-
+          # 解决 Image 1 的 Exit 77：使用温和但有效的静态参数
           export CC="aarch64-linux-gcc"
-          # 极简且正确的静态编译参数
           export CFLAGS="-Os -static"
           export LDFLAGS="-static"
           
-          # 运行配置脚本，--host 指定目标架构，全面禁用不需要的组件和容易报错的 NLS
           ./configure --host=aarch64-linux \
                       --disable-shared \
                       --enable-static \
@@ -56,19 +51,14 @@ jobs:
                       --disable-nls \
                       --disable-bash-completion
           
-          # 精准只编译 fstrim
           make fstrim LDFLAGS="-static"
-          
-          # 剥离多余的调试符号，大幅度减小文件体积
           aarch64-linux-strip --strip-all fstrim
           
-          # 输出验证信息
-          echo "========================================"
+          echo "Verification:"
           file fstrim
-          echo "========================================"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fstrim-android-aarch64-bootlin-static
+          name: fstrim-static-aarch64
           path: fstrim
