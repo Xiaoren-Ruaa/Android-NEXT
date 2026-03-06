@@ -1,7 +1,7 @@
 name: Build Ultimate Static fstrim
 
 on:
-  workflow_dispatch: # 手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,45 +13,39 @@ jobs:
           repository: util-linux/util-linux
           fetch-depth: 1
 
-      - name: Install Critical Tools
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          # 必须安装交叉编译器的 libc 和静态库
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-                                 libc6-dev-arm64-cross \
-                                 autoconf automake libtool pkg-config gettext autopoint bison flex
+          # 安装 musl 交叉编译器
+          sudo apt-get install -y musl-tools musl-dev gcc-aarch64-linux-gnu autoconf automake libtool pkg-config bison flex
 
       - name: Build
         run: |
           ./autogen.sh
           
-          # 强制环境变量
-          export CC=aarch64-linux-gnu-gcc
-          # 终极奥义：在 LDFLAGS 中加入 -static --static 和 -all-static
-          export LDFLAGS="-static --static -all-static"
+          # 使用 musl-gcc 进行静态编译
+          # 它会强制使用 musl 代替 glibc，避开 android 兼容性地雷
+          export CC=aarch64-linux-musl-gcc
           
+          # 配置阶段，禁用动态库
           ./configure --host=aarch64-linux-gnu \
                       --disable-shared \
                       --enable-static \
                       --disable-all-programs \
                       --enable-fstrim \
-                      --enable-libmount \
-                      --enable-libblkid \
-                      --enable-libuuid \
                       --without-python \
                       --without-systemd \
                       --without-udev \
-                      --without-ncurses
+                      --without-ncurses \
+                      --without-cap-ng
+
+          # 强制链接参数：-static 指示编译器进行静态链接
+          # 确保所有的 library 都被嵌入二进制
+          make LDFLAGS="-static -static-libgcc"
           
-          # 在 make 阶段再次强制静态链接参数，防止脚本漏掉
-          make -j$(nproc) fstrim LDFLAGS="-all-static"
-          
-          # 验证文件是否真的是全静态链接
-          if ldd fstrim 2>&1 | grep -q "not a dynamic executable"; then
-            echo "Verification Success: Truly Static Binary"
-          else
-            echo "Warning: Binary might still be dynamic!"
-          fi
+          # 验证：如果这里报错或者有输出依赖，说明还没成功
+          # 如果没有任何输出，则说明是真正干净的静态文件
+          ! readelf -d fstrim | grep -q "NEEDED"
           
           aarch64-linux-gnu-strip --strip-all fstrim
 
