@@ -40,11 +40,20 @@ jobs:
           # 将工具链路径加入 PATH（对后续步骤生效）
           echo "$TOOLCHAIN/bin" >> $GITHUB_PATH
 
+      - name: Create NDK toolchain symlinks for OpenSSL
+        run: |
+          cd $TOOLCHAIN/bin
+          # OpenSSL 期望 aarch64-linux-android-gcc 等
+          ln -sf $TARGET$API-clang $TARGET-gcc
+          ln -sf $TARGET$API-clang++ $TARGET-g++
+          ln -sf llvm-ar $TARGET-ar
+          ln -sf llvm-ranlib $TARGET-ranlib
+          # 确认符号链接创建成功
+          ls -l $TARGET-gcc
+
       - name: Build OpenSSL (static)
         run: |
-          # 确保 PATH 包含工具链（虽然 GITHUB_PATH 已添加，但当前步骤仍需手动导出）
-          export PATH=$TOOLCHAIN/bin:$PATH
-          # OpenSSL 3.0 需要 ANDROID_NDK_HOME 环境变量
+          # PATH 已通过 GITHUB_PATH 包含 $TOOLCHAIN/bin，无需重复添加
           export ANDROID_NDK_HOME=$NDK_PATH
           wget https://www.openssl.org/source/openssl-3.0.13.tar.gz
           tar xf openssl-3.0.13.tar.gz
