@@ -125,10 +125,28 @@ jobs:
           tar xf nmap-$VER.tar.bz2
           echo "NMAP_SRC_DIR=$PWD/nmap-$VER" >> $GITHUB_ENV
 
-      # 删除内部 liblua 目录（我们已经使用外部 lua）
-      - name: Remove internal liblua
+      # 删除内部库目录（使用外部库）
+      - name: Remove internal libraries
         run: |
           rm -rf $NMAP_SRC_DIR/liblua
+          rm -rf $NMAP_SRC_DIR/libpcre
+          rm -rf $NMAP_SRC_DIR/libssh2
+          rm -rf $NMAP_SRC_DIR/liblinear
+          rm -rf $NMAP_SRC_DIR/nping
+
+      # --- 检查外部静态库是否存在 ---
+      - name: Check static libraries
+        run: |
+          echo "OpenSSL dir: $OPENSSL_DIR"
+          ls -l $OPENSSL_DIR/lib/
+          if [ ! -f "$OPENSSL_DIR/lib/libssl.a" ]; then echo "OpenSSL libssl.a not found"; exit 1; fi
+          echo "libpcap dir: $LIBPCAP_DIR"
+          ls -l $LIBPCAP_DIR/lib/
+          if [ ! -f "$LIBPCAP_DIR/lib/libpcap.a" ]; then echo "libpcap.a not found"; exit 1; fi
+          echo "Lua dir: $LUA_DIR"
+          ls -l $LUA_DIR/lib/
+          if [ ! -f "$LUA_DIR/lib/liblua.a" ]; then echo "liblua.a not found"; exit 1; fi
+          echo "All static libraries found."
 
       - name: Configure nmap (static, minimal features)
         run: |
@@ -151,6 +169,7 @@ jobs:
             --without-libssh \
             --without-pcre \
             --without-liblinear \
+            --without-dnet \
             --with-pcap=linux \
             --with-openssl=$OPENSSL_DIR \
             --with-liblua=$LUA_DIR \
@@ -158,23 +177,11 @@ jobs:
             --enable-static \
             --disable-shared
 
-      # 删除内部可能仍被尝试编译的库目录，彻底避免它们干扰
-      - name: Remove internal unused libraries
-        run: |
-          rm -rf $NMAP_SRC_DIR/libpcre
-          rm -rf $NMAP_SRC_DIR/libssh2
-          rm -rf $NMAP_SRC_DIR/liblinear
-          rm -rf $NMAP_SRC_DIR/nping
-
       - name: Compile nmap (static) with verbose output
         run: |
           cd $NMAP_SRC_DIR
-          # 使用单线程编译，便于看清错误
-          make -j1 V=1 LDFLAGS="$LDFLAGS -static -pie -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000" LIBS="-llua -lpcap -lssl -lcrypto -lm" || {
-            echo "=== Compilation failed. Displaying last 50 lines of config.log and make output ==="
-            tail -50 config.log
-            exit 1
-          }
+          # 直接运行 make，失败时自动输出错误（GHA 会捕获）
+          make V=1 LDFLAGS="$LDFLAGS -static -pie -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000" LIBS="-llua -lpcap -lssl -lcrypto -lm"
           make install
 
       - name: Strip and package
