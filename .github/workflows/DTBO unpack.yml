@@ -1,10 +1,10 @@
-name: Global DTBO Master Toolchain
+name: DTBO unpack
 
 on:
   workflow_dispatch:
     inputs:
       img_name:
-        description: '上传的文件名 (如 dtbo.img)'
+        description: '镜像文件名'
         required: true
         default: 'dtbo.img'
 
@@ -12,65 +12,48 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Environment Setup
+      - name: Install System Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y device-tree-compiler python3 git
+          sudo apt-get install -y device-tree-compiler
 
-      - name: Get Official AOSP mkdtimg
-        run: |
-          # 从 AOSP 官方预编译库获取 Linux x86_64 版本的 mkdtimg
-          # 这是 Google 官方用于构建 Android 系统的工具，适配所有厂商标准格式
-          wget https://android.googlesource.com/platform/prebuilts/misc/linux-x86/libufdt/mkdtimg?format=TEXT -O mkdtimg.base64
-          base64 -d mkdtimg.base64 > mkdtimg
-          chmod +x mkdtimg
-          ./mkdtimg --version || echo "Official tool loaded"
-
-      - name: Universal Unpack Logic
+      - name: Universal Unpack
         run: |
           mkdir -p output/dtb
           IMG="${{ github.event.inputs.img_name }}"
           
-          # 检查文件是否存在
-          if [ ! -f "$IMG" ]; then
-             echo "错误: 找不到文件 $IMG，请确认文件已上传到仓库根目录。"
-             exit 1
-          fi
+          # 使用 grep 定位所有 DTB 头部特征码 0xd00dfeed
+          # 这种方法不依赖任何厂商工具，适配所有 Android DTBO
+          grep -aob $'\xd0\x0d\xfe\xed' "$IMG" | cut -d: -f1 > offsets.txt
+          
+          count=0
+          while read -r offset; do
+            # 计算当前块的大小并切分
+            next_offset=$(grep -A1 "$offset" offsets.txt | tail -n 1)
+            if [ "$offset" == "$next_offset" ]; then
+                dd if="$IMG" of=output/dtb/content.$count bs=1 skip="$offset" status=none
+            else
+                size=$((next_offset - offset))
+                dd if="$IMG" of=output/dtb/content.$count bs=1 skip="$offset" count=$size status=none
+            fi
+            count=$((count + 1))
+          done < offsets.txt
 
-          echo ">>> 尝试官方标准格式解包..."
-          if ./mkdtimg dump "$IMG" -b output/dtb/content; then
-            echo "官方工具解包成功。"
-          else
-            echo "标准解包失败，启动底层特征码切分逻辑 (适配非标厂商)..."
-            # 寻找 DTB 魔数 0xd00dfeed 并手动切割
-            grep -aob $'\xd0\x0d\xfe\xed' "$IMG" | cut -d: -f1 > offsets.txt
-            count=0
-            while read -r offset; do
-              dd if="$IMG" of=output/dtb/content.$count bs=1 skip="$offset" status=none
-              count=$((count + 1))
-            done < offsets.txt
-          fi
-
-      - name: Recursive Decompile
+      - name: Batch Decompile
         run: |
           mkdir -p output/dts
-          # 使用系统自带的官方 dtc 工具进行反编译
-          find output/dtb -type f | while read -r dtb_file; do
-            idx=$(basename "$dtb_file" | sed 's/content.//')
-            echo "正在处理节点: $idx"
-            dtc -I dtb -O dts "$dtb_file" -o "output/dts/node_${idx}.dts" 2>/dev/null || rm "output/dts/node_${idx}.dts"
+          for f in output/dtb/content.*; do
+            dtc -I dtb -O dts "$f" -o "output/dts/$(basename "$f").dts" 2>/dev/null || true
           done
 
-      - name: Smart Analysis
+      - name: Generate Summary
         run: |
-          echo "--- 关键参数位置索引 ---" > output/summary.txt
-          grep -rnE "qcom,mdss-dsi-panel-name|framerate|max-brightness|touch-report-rate" output/dts/ >> output/summary.txt || true
+          echo "搜索结果：" > output/summary.txt
+          grep -rnE "panel|framerate|brightness" output/dts/ >> output/summary.txt || true
 
-      - name: Package Artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: DTBO-Analysis-Result
+          name: DTBO-Decompiled
           path: output/
