@@ -156,9 +156,11 @@ jobs:
           grep -E -- "-o vim" build.log | head -1 > link_cmd.txt
           echo "=== Extracted link command ==="
           cat link_cmd.txt
-          # 保存到工作空间
+          # 创建目标目录并复制文件
           mkdir -p $GITHUB_WORKSPACE/link_info
           cp link_cmd.txt $GITHUB_WORKSPACE/link_info/
+          # 验证文件是否存在
+          ls -la $GITHUB_WORKSPACE/link_info/
 
       # --- 检查 TLS 段对齐 ---
       - name: Check TLS alignment
