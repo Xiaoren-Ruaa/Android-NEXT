@@ -63,7 +63,7 @@ jobs:
           VERSION=$(curl -s https://nmap.org/dist/ | grep -oP 'nmap-7\.\d+' | sort -V | tail -n1 | sed 's/nmap-//')
           echo "version=${VERSION:-7.95}" >> $GITHUB_OUTPUT
 
-      # --- 编译 OpenSSL（静态）- 修正版 ---
+      # --- 编译 OpenSSL（静态）---
       - name: Build OpenSSL (static)
         run: |
           export ANDROID_NDK_ROOT=$NDK_PATH
@@ -92,7 +92,7 @@ jobs:
           echo "LIBPCAP_DIR=$PWD/install" >> $GITHUB_ENV
           cd ..
 
-      # --- 编译 Lua（静态）- 直接编译源文件 ---
+      # --- 编译 Lua（静态）- 手动编译所有源文件 ---
       - name: Build Lua (static)
         run: |
           VER=${{ steps.lua.outputs.version }}
@@ -114,16 +114,22 @@ jobs:
           cp *.h $PWD/../install/include/
           cp liblua.a $PWD/../install/lib/
 
-          echo "LUA_DIR=$PWD/.." >> $GITHUB_ENV
+          # 设置 LUA_DIR 为 install 目录
+          echo "LUA_DIR=$PWD/../install" >> $GITHUB_ENV
           cd ../..
 
-      # --- 下载并编译 nmap（静态）---
+      # --- 下载 nmap 源码 ---
       - name: Download nmap source
         run: |
           VER=${{ steps.nmap.outputs.version }}
           wget https://nmap.org/dist/nmap-$VER.tar.bz2
           tar xf nmap-$VER.tar.bz2
           echo "NMAP_SRC_DIR=$PWD/nmap-$VER" >> $GITHUB_ENV
+
+      # 删除内部 liblua 目录，强制使用外部 lua
+      - name: Remove internal liblua
+        run: |
+          rm -rf $NMAP_SRC_DIR/liblua
 
       - name: Configure nmap (static)
         run: |
@@ -151,7 +157,7 @@ jobs:
       - name: Compile nmap (static)
         run: |
           cd $NMAP_SRC_DIR
-          # 静态链接，库顺序很重要：lua 可能依赖 m，pcap 依赖其他
+          # 静态链接，库顺序：lua, pcap, ssl, crypto, m
           make -j$(nproc) LDFLAGS="$LDFLAGS -static -pie -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000" LIBS="-llua -lpcap -lssl -lcrypto -lm"
           make install
 
