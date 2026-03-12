@@ -1,4 +1,6 @@
 ## 我也不知道是什么
+![License](https://img.shields.io/badge/license-GPL%20v2-blue)
+![Platform](https://img.shields.io/badge/platform-arm64-blue)
 
 ### ✨功能特性
 ✅基本全静态编译
