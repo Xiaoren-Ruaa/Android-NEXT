@@ -6,7 +6,7 @@
 ✅基本全静态编译<br>
 ✅支持arm64架构<br>
 ✅添加了一些安卓没有的命令(例如curl)<br>
-✅所有二进制文件均在“/system/bin”“/system/lib64”
+✅所有二进制文件均在“/system/bin”“/system/lib64”<br>
 
 ### ⚠️注意事项
 本项目仅供学习 使用前记得备份数据<br>
