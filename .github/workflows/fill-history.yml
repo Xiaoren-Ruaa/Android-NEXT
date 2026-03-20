@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       start_date:
-        description: '开始日期 (YYYY-MM-DD)'
+        description: '2025-06-05'
         required: true
         default: '2025-04-23'
       end_date:
