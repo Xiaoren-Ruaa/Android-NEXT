@@ -23,15 +23,18 @@ jobs:
       - name: Prepare kernel config
         run: |
           cd kernel_src
-          # 优先使用你从手机提取的 .config 文件（强烈推荐）
+          # 使用提供的 config 文件（强烈推荐）
           if [ -f ../config ]; then
             cp ../config .config
             echo "Using provided config file"
           else
-            # 如果没有提供，尝试使用内核源码中的默认配置
             echo "No config file provided, using defconfig"
             make ARCH=arm64 defconfig
           fi
+          # 准备构建环境
+          make ARCH=arm64 olddefconfig
+          make ARCH=arm64 prepare
+          make ARCH=arm64 modules_prepare
 
       - name: Build module
         run: |
@@ -39,7 +42,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export PATH=$PATH:/usr/bin
           cd kernel_src
-          # 复制你的模块源码和 Makefile 到内核源码目录
+          # 复制模块源码和 Makefile
           cp ../ksu_cmd.c ./
           cp ../Makefile ./
           # 编译模块
