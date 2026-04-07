@@ -147,6 +147,13 @@ jobs:
             LDFLAGS="-static -s -fPIE -L$(pwd)/../../deps/readline-8.2/install/lib -L$(pwd)/../../deps/ncurses-6.4/install/lib" \
             LIBS="-lreadline -lncursesw -ltinfo"
 
+          # Patch config.h to forcefully undefine HAVE_SETPWENT etc.
+          sed -i 's/#define HAVE_SETPWENT 1/\/* #undef HAVE_SETPWENT *\//' config.h
+          sed -i 's/#define HAVE_GETPWENT 1/\/* #undef HAVE_GETPWENT *\//' config.h
+          sed -i 's/#define HAVE_ENDPWENT 1/\/* #undef HAVE_ENDPWENT *\//' config.h
+          # Also patch any other potential issues
+          sed -i 's/#define HAVE_GETPWUID 1/\/* #undef HAVE_GETPWUID *\//' config.h
+
           make -j$(nproc) bash
           $TOOLCHAIN_PATH/bin/llvm-strip --strip-all bash
           cp bash ../../bash-static-$ARCH
