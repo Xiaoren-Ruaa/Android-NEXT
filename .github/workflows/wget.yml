@@ -123,7 +123,8 @@ jobs:
           tar -xf bash-5.2.tar.gz
           cd bash-5.2
 
-          # Force detection of pwent functions and disable -Werror
+          # Configure for fully static build, disable pwent functions (not available on Android)
+          # and disable -Werror, also disable bash malloc to avoid potential issues
           ./configure \
             --host=$HOST \
             --disable-shared \
@@ -133,14 +134,16 @@ jobs:
             --with-curses \
             --prefix=/system \
             --disable-werror \
-            ac_cv_func_setpwent=yes \
-            ac_cv_func_getpwent=yes \
-            ac_cv_func_endpwent=yes \
+            --without-bash-malloc \
+            ac_cv_func_setpwent=no \
+            ac_cv_func_getpwent=no \
+            ac_cv_func_endpwent=no \
+            ac_cv_func_getpwuid=no \
             CPPFLAGS="-D_GNU_SOURCE" \
             CC="$TOOLCHAIN_PATH/bin/${TOOLCHAIN}-clang" \
             AR="$TOOLCHAIN_PATH/bin/llvm-ar" \
             RANLIB="$TOOLCHAIN_PATH/bin/llvm-ranlib" \
-            CFLAGS="-static -Os -fPIE -Wno-parentheses -Wno-unused-command-line-argument" \
+            CFLAGS="-static -Os -fPIE -Wno-parentheses -Wno-deprecated-non-prototype -Wno-unused-command-line-argument" \
             LDFLAGS="-static -s -fPIE -L$(pwd)/../../deps/readline-8.2/install/lib -L$(pwd)/../../deps/ncurses-6.4/install/lib" \
             LIBS="-lreadline -lncursesw -ltinfo"
 
