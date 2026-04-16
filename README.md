@@ -1,5 +1,5 @@
 ## 我也不知道是什么
-![License](https://img.shields.io/badge/license-GPL%20v2-blue)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Platform](https://img.shields.io/badge/platform-arm64-blue)
 
 ### ✨功能特性
