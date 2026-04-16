@@ -4,7 +4,7 @@
 
 ## 📄 License
 
-MIT License © 2026 [你的名字]
+MIT License © 2026 [6ef1c6c]
 
 Original SL by Toyoda Masashi (freely redistributable)
 
@@ -20,7 +20,5 @@ Original SL by Toyoda Masashi (freely redistributable)
 部分命令可能需要内核配置支持
 
 ### 📜许可证
-本项目包含 Linux 内核代码，遵循 GNU General Public License v2.0<br>
+
 ## 下一步计划=====><br>
-添加wget git nmap更多命令支持<br>
-优化部分代码
