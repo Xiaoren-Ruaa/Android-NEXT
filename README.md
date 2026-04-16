@@ -20,5 +20,5 @@ Original SL by Toyoda Masashi (freely redistributable)
 部分命令可能需要内核配置支持
 
 ### 📜许可证
-
+本项目代码和编译产物均可自由使用、修改、分发<br>
 ## 下一步计划=====><br>
