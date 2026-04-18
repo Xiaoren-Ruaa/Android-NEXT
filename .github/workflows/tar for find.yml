@@ -1,105 +1,76 @@
-name: Build tar and find (ARM64 Static)
+name: Cross-compile tar and find (ARM64 Static)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build tar & find (ARM64)
+    name: Cross-compile tar & find (ARM64)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Install cross-compilation toolchain
+        run: |
+          sudo apt-get update
+          # 安装 ARM64 交叉编译器及常用静态库
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu autoconf automake wget file
 
-      - name: Set up QEMU for multi-architecture builds
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build static tar and find inside ARM64 container
+      - name: Compile static tar (ARM64)
         run: |
           TAR_VERSION="1.35"
-          FIND_VERSION="4.10.0"
-          CONTAINER_NAME="builder-arm64-$(date +%s)"
+          wget https://ftp.gnu.org/gnu/tar/tar-${TAR_VERSION}.tar.gz
+          tar xzf tar-${TAR_VERSION}.tar.gz
+          cd tar-${TAR_VERSION}
 
-          # 启动容器并保持运行
-          docker run -d --rm --platform linux/arm64 --name $CONTAINER_NAME ubuntu:22.04 sleep infinity
+          # 修复 Bionic 类型不匹配补丁 (针对 Android 交叉编译)
+          cat > fix-ialloc.patch << 'EOF'
+          --- a/gnu/ialloc.h
+          +++ b/gnu/ialloc.h
+          @@ -102,9 +102,9 @@
+           _GL_INLINE void *
+           imalloc (idx_t s)
+           {
+          -  return s <= SIZE_MAX ? malloc (s) : _gl_alloc_nomem ();
+          +  return s <= SIZE_MAX ? (void *) malloc (s) : (void *) _gl_alloc_nomem ();
+           }
+           
+           _GL_INLINE void *
+           irealloc (void *p, idx_t s)
+           {
+          -  return s <= SIZE_MAX ? realloc (p, s) : _gl_alloc_nomem ();
+          +  return s <= SIZE_MAX ? (void *) realloc (p, s) : (void *) _gl_alloc_nomem ();
+           }
+          EOF
+          patch -p1 < fix-ialloc.patch
 
-          # 在容器内执行编译脚本
-          docker exec $CONTAINER_NAME bash -c "
-            apt-get update && \
-            apt-get install -y wget build-essential file autoconf automake && \
+          # 配置、编译、验证、瘦身
+          ./configure --host=aarch64-linux-gnu \
+                      CC=aarch64-linux-gnu-gcc \
+                      CFLAGS="-static -O2" \
+                      LDFLAGS="-static -all-static" \
+                      --prefix=/usr
+          make -j$(nproc)
+          aarch64-linux-gnu-strip src/tar
+          file src/tar | grep 'statically linked' || { echo "Error: tar is not static"; exit 1; }
+          cp src/tar $GITHUB_WORKSPACE/tar-static-arm64
 
-            # ========== 编译 tar ==========
-            echo '=== Building tar ===' && \
-            wget https://ftp.gnu.org/gnu/tar/tar-${TAR_VERSION}.tar.gz && \
-            tar xzf tar-${TAR_VERSION}.tar.gz && \
-            cd tar-${TAR_VERSION} && \
-
-            # 修复 Bionic 类型不匹配补丁
-            cat > fix-ialloc.patch << 'EOF'
-            --- a/gnu/ialloc.h
-            +++ b/gnu/ialloc.h
-            @@ -102,9 +102,9 @@
-             _GL_INLINE void *
-             imalloc (idx_t s)
-             {
-            -  return s <= SIZE_MAX ? malloc (s) : _gl_alloc_nomem ();
-            +  return s <= SIZE_MAX ? (void *) malloc (s) : (void *) _gl_alloc_nomem ();
-             }
-             
-             _GL_INLINE void *
-             irealloc (void *p, idx_t s)
-             {
-            -  return s <= SIZE_MAX ? realloc (p, s) : _gl_alloc_nomem ();
-            +  return s <= SIZE_MAX ? (void *) realloc (p, s) : (void *) _gl_alloc_nomem ();
-             }
-            EOF
-            patch -p1 < fix-ialloc.patch && \
-
-            FORCE_UNSAFE_CONFIGURE=1 \
-            CFLAGS='-static' \
-            LDFLAGS='-static' \
-            ./configure --prefix=/usr && \
-
-            make -j\$(nproc) && \
-            strip src/tar && \
-            file src/tar | grep 'statically linked' || { echo 'Error: tar is not static'; exit 1; } && \
-            cp src/tar /tmp/tar-static-arm64 && \
-
-            cd / && rm -rf tar-${TAR_VERSION}* && \
-
-            # ========== 编译 find ==========
-            echo '=== Building find ===' && \
-            wget https://ftp.gnu.org/gnu/findutils/findutils-${FIND_VERSION}.tar.xz && \
-            tar xJf findutils-${FIND_VERSION}.tar.xz && \
-            cd findutils-${FIND_VERSION} && \
-
-            CFLAGS='-static' LDFLAGS='-static' ./configure --prefix=/usr && \
-            make -j\$(nproc) && \
-            strip find/find && \
-            file find/find | grep 'statically linked' || { echo 'Error: find is not static'; exit 1; } && \
-            cp find/find /tmp/find-static-arm64 && \
-
-            cd / && rm -rf findutils-${FIND_VERSION}* && \
-
-            echo 'Both builds succeeded.'
-          "
-
-          # 从容器中复制产物到宿主机
-          docker cp $CONTAINER_NAME:/tmp/tar-static-arm64 ./tar-static-arm64
-          docker cp $CONTAINER_NAME:/tmp/find-static-arm64 ./find-static-arm64
-
-          # 停止并删除容器
-          docker stop $CONTAINER_NAME
-
-      - name: Verify artifacts
+      - name: Compile static find (ARM64)
         run: |
-          ls -la
-          file ./tar-static-arm64
-          file ./find-static-arm64
+          FIND_VERSION="4.10.0"
+          wget https://ftp.gnu.org/gnu/findutils/findutils-${FIND_VERSION}.tar.xz
+          tar xJf findutils-${FIND_VERSION}.tar.xz
+          cd findutils-${FIND_VERSION}
+
+          # 配置、编译、验证、瘦身
+          ./configure --host=aarch64-linux-gnu \
+                      CC=aarch64-linux-gnu-gcc \
+                      CFLAGS="-static -O2" \
+                      LDFLAGS="-static -all-static" \
+                      --prefix=/usr
+          make -j$(nproc)
+          aarch64-linux-gnu-strip find/find
+          file find/find | grep 'statically linked' || { echo "Error: find is not static"; exit 1; }
+          cp find/find $GITHUB_WORKSPACE/find-static-arm64
 
       - name: Upload tar artifact
         uses: actions/upload-artifact@v4
