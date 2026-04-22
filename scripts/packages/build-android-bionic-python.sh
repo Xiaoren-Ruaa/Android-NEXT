@@ -140,9 +140,15 @@ INSTALL_PREFIX="/data/local/python"
   --disable-test-modules \
   --disable-ipv6 \
   ac_cv_file__dev_ptmx=no \
-  ac_cv_file__dev_ptc=no \
-  ac_cv_header_lzma_h=no \
-  ac_cv_lib_lzma_lzma_version_number=no
+  ac_cv_file__dev_ptc=no
+
+# NDK r27 sysroot ships lzma.h, so configure enables _lzma even when
+# ac_cv_header_lzma_h=no is passed (the NDK clang finds the header via
+# its built-in sysroot).  Appending to Modules/Setup.local is the
+# authoritative way to exclude a module after configure has run; Python's
+# Makefile will regenerate its rules before compiling if Setup.local
+# changes (standard Python build-system behaviour).
+echo "*disabled* _lzma" >> "${cross_src}/Modules/Setup.local"
 
 make -j"$(nproc)"
 

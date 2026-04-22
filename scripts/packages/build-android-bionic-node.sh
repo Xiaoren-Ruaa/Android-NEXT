@@ -82,6 +82,10 @@ fi
 #   Note: --without-snapshot was removed in Node.js v24. The snapshot
 #         is now always built; Node.js uses the host mksnapshot binary
 #         automatically when cross-compiling.
+#   Note: --android-ndk-path is not a recognised configure option in
+#         Node.js v24; passing it would be forwarded raw to GYP which
+#         then treats it as a .gyp file path and fails. Instead, expose
+#         the NDK root via GYP_DEFINES so node.gyp picks it up.
 #   CC_host / CXX_host         native compilers for host-only tools
 #                              (mksnapshot, node_js2c, etc.)
 # -----------------------------------------------------------------
@@ -91,11 +95,14 @@ pushd "$src_dir" >/dev/null
 CC_HOST="$(command -v gcc)"
 CXX_HOST="$(command -v g++)"
 
+# Pass the NDK path to GYP via GYP_DEFINES (node.gyp references
+# android_ndk_path to locate the toolchain).
+export GYP_DEFINES="android_ndk_path=${ANDROID_NDK_ROOT}"
+
 ./configure \
   --dest-os=android \
   --dest-cpu=arm64 \
   --cross-compiling \
-  --android-ndk-path="${ANDROID_NDK_ROOT}" \
   --openssl-no-asm \
   CC_host="${CC_HOST}" \
   CXX_host="${CXX_HOST}"
