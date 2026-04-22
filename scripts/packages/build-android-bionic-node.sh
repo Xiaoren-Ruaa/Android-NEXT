@@ -92,20 +92,26 @@ fi
 log_step "Configuring Node.js for android/arm64"
 pushd "$src_dir" >/dev/null
 
-CC_HOST="$(command -v gcc)"
-CXX_HOST="$(command -v g++)"
+# Export host compilers as environment variables.
+# configure.py reads CC_host/CXX_host from the environment when
+# --cross-compiling is set; passing them as positional configure args
+# would cause them to be forwarded raw to GYP, which treats unknown
+# positional arguments as .gyp file paths and fails.
+export CC_host="$(command -v gcc)"
+export CXX_host="$(command -v g++)"
 
 # Pass the NDK path to GYP via GYP_DEFINES (node.gyp references
-# android_ndk_path to locate the toolchain).
+# android_ndk_path to locate the toolchain; --android-ndk-path is not
+# a recognised configure.py option in v24 and would be forwarded to
+# GYP as a positional arg, causing the same "not found while trying
+# to load" error).
 export GYP_DEFINES="android_ndk_path=${ANDROID_NDK_ROOT}"
 
 ./configure \
   --dest-os=android \
   --dest-cpu=arm64 \
   --cross-compiling \
-  --openssl-no-asm \
-  CC_host="${CC_HOST}" \
-  CXX_host="${CXX_HOST}"
+  --openssl-no-asm
 
 # -----------------------------------------------------------------
 # 4. Compile
