@@ -1,0 +1,28 @@
+name: Build ARM64 Dev Runtime Bundle
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Runtime Bundle (ARM64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build runtime bundle
+        run: |
+          bash scripts/packages/build-runtime-toolchain.sh manifests/runtime-toolchain.env
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-toolchain-arm64
+          path: |
+            dist/runtime-toolchain/runtime-toolchain-arm64.tar.gz
+            dist/runtime-toolchain/MANIFEST.txt
+            dist/runtime-toolchain/toolchain/README.txt
+          retention-days: 90

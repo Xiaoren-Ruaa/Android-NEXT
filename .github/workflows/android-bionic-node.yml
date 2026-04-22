@@ -1,0 +1,48 @@
+name: Build Node.js for Android (Bionic/aarch64)
+# Produces a Node.js binary linked against Android's Bionic libc.
+# This is NOT the glibc bundle — this binary runs on real Android
+# without a compatibility layer.
+#
+# Build time: ~60–90 minutes on ubuntu-22.04 (2 vCPU, 7 GB RAM).
+# Android NDK is pre-installed on GitHub Actions ubuntu-22.04 runners.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Node.js → aarch64-linux-android (Bionic)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            g++ \
+            ninja-build \
+            python3 \
+            git
+
+      - name: Build Node.js for Android
+        env:
+          # ANDROID_NDK_LATEST_HOME is set automatically on GitHub Actions
+          # ubuntu-22.04 and points to the pre-installed NDK.
+          ANDROID_NDK_LATEST_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: |
+          bash scripts/packages/build-android-bionic-node.sh \
+            manifests/android-bionic-node.env
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-android-arm64-bionic
+          path: |
+            dist/android-bionic-node/*.tar.gz
+            dist/android-bionic-node/MANIFEST.txt
+          retention-days: 90

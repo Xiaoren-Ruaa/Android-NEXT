@@ -45,7 +45,7 @@ jobs:
             COMMITS_PER_DAY=12   # 每天提交次数，可按需修改
             echo "Daily run: generating $COMMITS_PER_DAY commits for $TODAY"
             for i in $(seq 1 $COMMITS_PER_DAY); do
-              git commit --allow-empty -m "daily fill #$i on $TODAY"
+              git commit --allow-empty -m "chore(ci): daily fill #$i on $TODAY"
             done
           else
             # 手动触发：生成历史提交
@@ -58,7 +58,7 @@ jobs:
               for i in $(seq 1 $DAILY_COMMITS); do
                 export GIT_AUTHOR_DATE="$current_date 12:00:00"
                 export GIT_COMMITTER_DATE="$current_date 12:00:00"
-                git commit --allow-empty -m "chore: sync #$i on $current_date"
+                git commit --allow-empty -m "chore(ci): backfill #$i on $current_date"
               done
               current_date=$(date -d "$current_date + 1 day" +%Y-%m-%d)
             done
