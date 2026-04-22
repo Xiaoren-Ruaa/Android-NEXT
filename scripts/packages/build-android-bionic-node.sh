@@ -92,20 +92,22 @@ fi
 log_step "Configuring Node.js for android/arm64"
 pushd "$src_dir" >/dev/null
 
-# Export host compilers as environment variables.
-# configure.py reads CC_host/CXX_host from the environment when
-# --cross-compiling is set; passing them as positional configure args
-# would cause them to be forwarded raw to GYP, which treats unknown
-# positional arguments as .gyp file paths and fails.
+# Pass GYP variables that are not auto-populated:
+#   android_ndk_path  – referenced by V8/Node.js GYP files to locate the NDK
+#   host_os           – used by v8.gyp conditions to select host toolchain
+#                       rules; GYP's condition evaluator accesses this as a
+#                       Python name; it has a lazy '%' default in toolchain.gypi
+#                       but that default is never applied to the eval namespace,
+#                       so without an explicit definition eval() raises
+#                       NameError and configure fails.
+export GYP_DEFINES="android_ndk_path=${ANDROID_NDK_ROOT} host_os=linux"
+
+# Export host compilers as environment variables.  configure.py reads
+# CC_host/CXX_host from os.environ when --cross-compiling is set.
+# Passing them as positional configure args would forward them raw to
+# GYP, which treats unknown positional arguments as .gyp file paths.
 export CC_host="$(command -v gcc)"
 export CXX_host="$(command -v g++)"
-
-# Pass the NDK path to GYP via GYP_DEFINES (node.gyp references
-# android_ndk_path to locate the toolchain; --android-ndk-path is not
-# a recognised configure.py option in v24 and would be forwarded to
-# GYP as a positional arg, causing the same "not found while trying
-# to load" error).
-export GYP_DEFINES="android_ndk_path=${ANDROID_NDK_ROOT}"
 
 ./configure \
   --dest-os=android \

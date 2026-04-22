@@ -125,6 +125,15 @@ native_python="${native_prefix}/bin/python3"
 #     ac_cv_file__dev_ptmx / ac_cv_file__dev_ptc
 #       Bionic does not provide these devices; suppress the autoconf
 #       checks that would otherwise fail at configure time.
+#     py_cv_module__lzma=disabled
+#       Python 3.13 uses pkg-config in cross-compilation mode; the
+#       GitHub Actions ubuntu runner has liblzma-dev installed, so
+#       configure (via the host pkg-config) reports _lzma as available
+#       even though the NDK sysroot does not include lzma.h.  The
+#       per-module cache variable py_cv_module__lzma is used by
+#       Python 3.13's PY_STDLIB_MOD macro; setting it to "disabled"
+#       prevents the module from being included in Modules/Setup.stdlib
+#       and therefore from being compiled.
 # ------------------------------------------------------------------
 log_step "Cross-compiling CPython ${PYTHON_VERSION} → aarch64-linux-android${ANDROID_API}"
 pushd "$cross_src" >/dev/null
@@ -140,15 +149,8 @@ INSTALL_PREFIX="/data/local/python"
   --disable-test-modules \
   --disable-ipv6 \
   ac_cv_file__dev_ptmx=no \
-  ac_cv_file__dev_ptc=no
-
-# NDK r27 sysroot ships lzma.h, so configure enables _lzma even when
-# ac_cv_header_lzma_h=no is passed (the NDK clang finds the header via
-# its built-in sysroot).  Appending to Modules/Setup.local is the
-# authoritative way to exclude a module after configure has run; Python's
-# Makefile will regenerate its rules before compiling if Setup.local
-# changes (standard Python build-system behaviour).
-echo "*disabled* _lzma" >> "${cross_src}/Modules/Setup.local"
+  ac_cv_file__dev_ptc=no \
+  py_cv_module__lzma=disabled
 
 make -j"$(nproc)"
 
