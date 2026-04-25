@@ -1,0 +1,48 @@
+name: Build Python for Android (Bionic/aarch64)
+# Produces a CPython binary linked against Android's Bionic libc.
+# CPython 3.13+ has first-class Android cross-compilation support.
+# This is NOT the glibc bundle — this binary runs on real Android
+# without a compatibility layer.
+#
+# Build time: ~25–40 minutes on ubuntu-22.04.
+# Android NDK is pre-installed on GitHub Actions ubuntu-22.04 runners.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Python → aarch64-linux-android (Bionic)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libssl-dev \
+            libffi-dev \
+            zlib1g-dev \
+            pkg-config \
+            python3
+
+      - name: Build Python for Android
+        env:
+          ANDROID_NDK_LATEST_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: |
+          bash scripts/packages/build-android-bionic-python.sh \
+            manifests/android-bionic-python.env
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-android-arm64-bionic
+          path: |
+            dist/android-bionic-python/*.tar.gz
+            dist/android-bionic-python/python/MANIFEST.txt
+          retention-days: 90

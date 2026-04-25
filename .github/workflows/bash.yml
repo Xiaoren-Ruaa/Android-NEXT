@@ -15,79 +15,15 @@ jobs:
       - name: Set up QEMU for multi-architecture builds
         uses: docker/setup-qemu-action@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Build static Bash inside ARM64 container
         run: |
-          # 获取最新版 Bash 版本号
-          LATEST_VERSION=$(curl -s https://ftp.gnu.org/gnu/bash/ | grep -oP 'bash-\K[0-9]+\.[0-9]+(?=\.tar\.gz)' | sort -V | tail -1)
-          echo "Latest Bash version: ${LATEST_VERSION}"
-
-          # 使用 QEMU 模拟的 ARM64 Ubuntu 容器来编译
-          docker run --rm --platform linux/arm64 -v $(pwd):/workspace -w /workspace ubuntu:22.04 bash -c "
-            # 更新软件包列表并安装必要的编译工具
-            apt-get update && \
-            apt-get install -y wget build-essential file flex bison libncurses-dev autoconf gettext && \
-            
-            # 下载最新版 Bash 源码
-            wget https://ftp.gnu.org/gnu/bash/bash-${LATEST_VERSION}.tar.gz && \
-            tar -xzf bash-${LATEST_VERSION}.tar.gz && \
-            cd bash-${LATEST_VERSION} && \
-
-            # 配置编译选项，启用静态链接和所有功能
-            ./configure \
-              --enable-static-link \
-              --enable-alias \
-              --enable-arith-for-command \
-              --enable-array-variables \
-              --enable-bang-history \
-              --enable-brace-expansion \
-              --enable-casemod-attributes \
-              --enable-casemod-expansions \
-              --enable-command-timing \
-              --enable-cond-command \
-              --enable-cond-regexp \
-              --enable-coprocesses \
-              --enable-debugger \
-              --enable-directory-stack \
-              --enable-dparen-arithmetic \
-              --enable-extended-glob \
-              --enable-help-builtin \
-              --enable-history \
-              --enable-job-control \
-              --enable-multibyte \
-              --enable-net-redirections \
-              --enable-process-substitution \
-              --enable-progcomp \
-              --enable-prompt-string-decoding \
-              --enable-readline \
-              --enable-restricted \
-              --enable-select \
-              --enable-single-help-strings \
-              --enable-strict-posix-default \
-              --enable-translatable-strings \
-              --enable-usg-echo-default \
-              --enable-xpg-echo-default \
-              LDFLAGS='-static' && \
-
-            # 编译
-            make -j\$(nproc) && \
-
-            # 验证静态链接和架构
-            file ./bash | grep 'statically linked' || { echo 'Error: bash is not statically linked'; exit 1; } && \
-            file ./bash | grep 'ARM aarch64' || { echo 'Error: bash is not built for ARM64'; exit 1; } && \
-
-            # 瘦身
-            strip ./bash && \
-
-            # 将编译好的 bash 复制到工作区
-            cp ./bash /workspace/
-          "
+          bash scripts/packages/build-bash-static.sh manifests/bash.env
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bash-static-arm64
-          path: ./bash
+          path: |
+            dist/bash/bash
+            dist/bash/VERSION
           retention-days: 90
