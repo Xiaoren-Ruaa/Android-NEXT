@@ -14,9 +14,9 @@ jobs:
 
       - name: Install NDK
         run: |
-          wget -q https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
-          unzip -q android-ndk-r26b-linux.zip
-          echo "NDK_PATH=$GITHUB_WORKSPACE/android-ndk-r26b" >> $GITHUB_ENV
+          wget -q https://dl.google.com/android/repository/android-ndk-latest-linux.zip
+          unzip -q android-ndk-latest-linux.zip
+          echo "NDK_PATH=$GITHUB_WORKSPACE/android-ndk" >> $GITHUB_ENV
 
       - name: Configure and Build
         run: |
